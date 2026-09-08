@@ -1,0 +1,33 @@
+{
+	"$schema": "./node_modules/oxfmt/configuration_schema.json",
+	"printWidth": 100,
+	"tabWidth": 2,
+	"useTabs": true,
+	"semi": false,
+	"singleQuote": true,
+	"jsdoc": {
+		"descriptionTag": true,
+		"bracketSpacing": true,
+		"descriptionWithDot": true
+	},
+	"sortPackageJson": true,
+	"sortImports": false,
+	"ignorePatterns": [
+		"node_modules/**",
+		"dist/**",
+		"coverage/**",
+		"artifacts/**",
+		".agents/skills/**",
+		"plugins/work/skills/**",
+		"plugins/work/.codex-plugin/plugin.json",
+		"plugins/work/.claude-plugin/plugin.json",
+		".claude-plugin/marketplace.json",
+		"examples/basic/work.json",
+		"src/release-identity.ts",
+		"schemas/work.schema.json",
+		"**/*.md",
+		"**/*.toml",
+		"**/*.yaml",
+		"**/*.yml"
+	]
+}

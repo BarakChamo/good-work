@@ -1,0 +1,48 @@
+[global]
+enable = [
+  "MD001",
+  "MD011",
+  "MD022",
+  "MD031",
+  "MD032",
+  "MD040",
+  "MD041",
+  "MD042",
+  "MD045",
+  "MD047",
+  "MD051",
+  "MD052",
+  "MD053",
+  "MD056",
+  "MD057",
+  "MD058",
+  "MD059",
+  "MD062",
+  "MD066",
+  "MD068",
+  "MD069",
+  "MD071",
+  "MD075",
+  "MD077",
+  "MD083",
+  "MD084",
+  "MD085",
+]
+exclude = [
+  ".agents/skills/**",
+  ".git/**",
+  ".rumdl_cache/**",
+  "coverage/**",
+  "dist/**",
+  "node_modules/**",
+  "plugins/work/skills/**",
+]
+respect-gitignore = true
+flavor = "gfm"
+
+[MD057]
+absolute-links = "warn"
+
+[per-file-ignores]
+".changeset/*.md" = ["MD041"]
+".github/pull_request_template.md" = ["MD041"]

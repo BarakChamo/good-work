@@ -1,0 +1,56 @@
+{
+	"$schema": "./node_modules/oxlint/configuration_schema.json",
+	"ignorePatterns": ["node_modules/**", "dist/**", "coverage/**", "artifacts/**"],
+	"options": {
+		"typeAware": true,
+		"typeCheck": true
+	},
+	"plugins": ["eslint", "typescript", "unicorn", "oxc", "vitest", "import", "jsdoc", "node"],
+	"categories": {
+		"correctness": "error",
+		"suspicious": "error"
+	},
+	"rules": {
+		"eslint/no-undefined": "off",
+		"eslint/no-use-before-define": [
+			"error",
+			{
+				"allowNamedExports": true,
+				"classes": true,
+				"enums": true,
+				"functions": false,
+				"ignoreTypeReferences": true,
+				"typedefs": false,
+				"variables": false
+			}
+		],
+		"eslint/no-void": ["error", { "allowAsStatement": true }],
+		"eslint/no-await-in-loop": "off",
+		"eslint/class-methods-use-this": "off",
+		"eslint/complexity": ["error", { "max": 50 }],
+		"import/no-relative-parent-imports": "off",
+		"node/no-sync": "off",
+		"oxc/no-map-spread": "off",
+		"oxc/no-optional-chaining": "off",
+		"oxc/no-rest-spread-properties": "off",
+		"typescript/explicit-function-return-type": "off",
+		"typescript/prefer-optional-chain": "error",
+		"unicorn/import-style": "off",
+		"unicorn/no-thenable": "off",
+		"unicorn/no-process-exit": "off",
+		"unicorn/no-useless-undefined": ["error", { "checkArguments": false }],
+		"unicorn/prefer-code-point": "off"
+	},
+	"overrides": [
+		{
+			"files": ["**/*.test.ts", "**/*.int.test.ts"],
+			"rules": {
+				"vitest/max-expects": "off",
+				"vitest/no-conditional-expect": "off",
+				"vitest/require-hook": "off",
+				"vitest/require-mock-type-parameters": "off",
+				"vitest/valid-expect": ["error", { "maxArgs": 2 }]
+			}
+		}
+	]
+}

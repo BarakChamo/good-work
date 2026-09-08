@@ -1,0 +1,30 @@
+{
+	"$schema": "https://raw.githubusercontent.com/replace-with-org/work/v0.0.0/schemas/work.schema.json",
+	"version": 1,
+	"hooks": {
+		"afterEdit": [
+			{
+				"id": "check-typescript",
+				"command": "bun",
+				"args": [
+					"run",
+					"typecheck"
+				],
+				"when": {
+					"changedFiles": {
+						"source": "workingTree",
+						"include": [
+							"**/*.ts",
+							"**/*.tsx"
+						]
+					}
+				},
+				"output": {
+					"mode": "summarize",
+					"when": "failure",
+					"instruction": "Summarize actionable type errors without reproducing successful output."
+				}
+			}
+		]
+	}
+}

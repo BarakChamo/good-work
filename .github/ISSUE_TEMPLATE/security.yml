@@ -1,0 +1,14 @@
+name: Security report
+description: Redirect confidential security reports to private vulnerability reporting.
+title: "security: do not submit confidential details here"
+body:
+  - type: markdown
+    attributes:
+      value: Do not open a public issue. Use the repository Security tab and select “Report a vulnerability.” See SECURITY.md for the disclosure policy.
+  - type: checkboxes
+    id: acknowledgement
+    attributes:
+      label: Private reporting
+      options:
+        - label: I will use GitHub private vulnerability reporting and will not include details here.
+          required: true

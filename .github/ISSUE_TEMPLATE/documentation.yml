@@ -1,0 +1,17 @@
+name: Documentation
+description: Report unclear, missing, or incorrect public documentation.
+title: "docs: "
+labels: [documentation]
+body:
+  - type: input
+    id: location
+    attributes:
+      label: Page or section
+    validations:
+      required: true
+  - type: textarea
+    id: issue
+    attributes:
+      label: What needs improvement?
+    validations:
+      required: true

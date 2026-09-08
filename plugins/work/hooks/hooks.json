@@ -1,0 +1,50 @@
+{
+	"description": "Dispatch trusted repository-root Work engineering hooks through the separately installed CLI.",
+	"hooks": {
+		"SessionStart": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "\"${CLAUDE_PLUGIN_ROOT}/bin/work-hook\"",
+						"timeout": 310
+					}
+				]
+			}
+		],
+		"PostToolUse": [
+			{
+				"matcher": "Edit|Write|MultiEdit|NotebookEdit|apply_patch|write_file|edit_file|Bash|shell_command|exec_command",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "\"${CLAUDE_PLUGIN_ROOT}/bin/work-hook\"",
+						"timeout": 310
+					}
+				]
+			}
+		],
+		"Stop": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "\"${CLAUDE_PLUGIN_ROOT}/bin/work-hook\"",
+						"timeout": 310
+					}
+				]
+			}
+		],
+		"SessionEnd": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "\"${CLAUDE_PLUGIN_ROOT}/bin/work-hook\"",
+						"timeout": 3
+					}
+				]
+			}
+		]
+	}
+}

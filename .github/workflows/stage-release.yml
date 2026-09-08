@@ -1,0 +1,75 @@
+name: Stage npm release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact package version to stage
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: npm-stage
+  cancel-in-progress: false
+
+jobs:
+  stage:
+    name: Verify and stage ${{ inputs.version }}
+    runs-on: ubuntu-latest
+    environment: npm-stage
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - run: npm install --global npm@11.19.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.7
+      - run: bun install --frozen-lockfile
+      - name: Verify requested version and identity
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: bun run scripts/verify-stage-input.ts
+      - run: bun run test:release
+      - name: Pack release assets
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: bun run scripts/build-release-artifacts.ts
+      - name: Stage exact tarball with npm OIDC
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: npm stage publish "dist/work-${RELEASE_VERSION}.tgz" --access public --tag latest
+      - name: Create immutable source tag
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          git tag "v${RELEASE_VERSION}" "${GITHUB_SHA}"
+          git push origin "v${RELEASE_VERSION}"
+      - name: Create draft GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          gh release create "v${RELEASE_VERSION}" \
+            --draft \
+            --verify-tag \
+            --title "Work ${RELEASE_VERSION}" \
+            --notes "Beta release. Review CHANGELOG.md and the attached provenance artifacts before approving the staged npm package." \
+            "dist/work-${RELEASE_VERSION}.tgz" \
+            "dist/work-${RELEASE_VERSION}.tgz.sha256" \
+            "dist/work-${RELEASE_VERSION}.cdx.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: work-${{ inputs.version }}-release-evidence
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30

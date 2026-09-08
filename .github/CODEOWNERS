@@ -1,0 +1,12 @@
+# Replace this generated owner only through `bun run configure:identity`.
+* @replace-with-org/work-maintainers
+
+# Security-sensitive execution and release boundaries require explicit review.
+/src/hooks.ts @replace-with-org/work-maintainers
+/src/hook-*.ts @replace-with-org/work-maintainers
+/plugins/work/bin/ @replace-with-org/work-maintainers
+/schemas/ @replace-with-org/work-maintainers
+/package.json @replace-with-org/work-maintainers
+/bun.lock @replace-with-org/work-maintainers
+/.github/workflows/ @replace-with-org/work-maintainers
+

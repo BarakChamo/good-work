@@ -1,0 +1,18 @@
+{
+	"compilerOptions": {
+		"target": "ESNext",
+		"module": "ESNext",
+		"moduleResolution": "Bundler",
+		"lib": ["ESNext"],
+		"types": ["node"],
+		"strict": true,
+		"noUncheckedIndexedAccess": true,
+		"exactOptionalPropertyTypes": true,
+		"verbatimModuleSyntax": true,
+		"skipLibCheck": true,
+		"forceConsistentCasingInFileNames": true,
+		"rootDir": ".",
+		"noEmit": true
+	},
+	"include": ["bin/**/*.ts", "evals/**/*.ts", "scripts/**/*.ts", "src/**/*.ts"]
+}

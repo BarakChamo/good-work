@@ -1,0 +1,4 @@
+interface:
+  display_name: "Work"
+  short_description: "Inspect and start validated repository work"
+  default_prompt: "Use $work to show current work and the next ready tasks."

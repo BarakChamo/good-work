@@ -1,0 +1,18 @@
+version: 1
+project:
+  id: example-project
+  uid: 123e4567-e89b-42d3-a456-426614174000
+completionLedger: true
+sources:
+  - kind: prd
+    include: docs/work/prds/*.md
+  - kind: issue
+    include: docs/work/issues/*.md
+    parentFields: [prd, parent]
+    dependencyFields: [depends_on, dependencies]
+policies:
+  contextMaxBytes: 8000
+  staleClaimMinutes: 90
+  terminalEvidence: [artifact]
+  delivery:
+    profile: evidence-only

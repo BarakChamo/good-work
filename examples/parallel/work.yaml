@@ -1,0 +1,14 @@
+version: 1
+project:
+  id: parallel-example
+  uid: 123e4567-e89b-42d3-a456-426614174001
+completionLedger: true
+sources:
+  - kind: issue
+    include: issues/*.md
+policies:
+  contextMaxBytes: 8000
+  staleClaimMinutes: 90
+  terminalEvidence: [test]
+  delivery:
+    profile: evidence-only

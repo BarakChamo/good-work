@@ -1,0 +1,23 @@
+{
+	"name": "work",
+	"version": "0.0.0",
+	"description": "Repository work coordination and trusted advisory engineering hooks",
+	"author": {
+		"name": "Work contributors"
+	},
+	"skills": "./skills/",
+	"interface": {
+		"displayName": "Work",
+		"shortDescription": "Coordinate repository work and engineering hooks.",
+		"longDescription": "Use the standalone Work CLI through an agent-native skill and run reviewed repository engineering hooks without changing work lifecycle authority.",
+		"developerName": "Work contributors",
+		"category": "Productivity",
+		"capabilities": [
+			"Interactive"
+		],
+		"defaultPrompt": [
+			"Show available work and the safest next action.",
+			"Prepare a repository issue without claiming it."
+		]
+	}
+}

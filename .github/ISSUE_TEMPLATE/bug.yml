@@ -1,0 +1,36 @@
+name: Bug report
+description: Report reproducible incorrect Work behavior.
+title: "bug: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Please remove repository names, paths, prompts, credentials, and private work content.
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Observed behavior
+      description: What happened, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Include sanitized configuration and commands only.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Work and Bun versions
+      placeholder: "work 0.1.0; Bun 1.3.7"
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options: [Linux x64, Linux arm64, macOS x64, macOS arm64, Windows x64, Windows arm64]
+    validations:
+      required: true

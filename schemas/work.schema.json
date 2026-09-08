@@ -1,0 +1,375 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"title": "Work advisory engineering hooks",
+	"type": "object",
+	"additionalProperties": false,
+	"required": [
+		"version",
+		"hooks"
+	],
+	"properties": {
+		"$schema": {
+			"type": "string"
+		},
+		"version": {
+			"const": 1
+		},
+		"hooks": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"sessionStart": {
+					"$ref": "#/$defs/sessionStartEntries"
+				},
+				"afterEdit": {
+					"$ref": "#/$defs/afterEditEntries"
+				},
+				"beforeStop": {
+					"$ref": "#/$defs/beforeStopEntries"
+				},
+				"sessionEnd": {
+					"$ref": "#/$defs/sessionEndEntries"
+				}
+			}
+		}
+	},
+	"$defs": {
+		"entries": {
+			"type": "array",
+			"maxItems": 32,
+			"items": {
+				"$ref": "#/$defs/entry"
+			}
+		},
+		"sessionStartEntries": {
+			"allOf": [
+				{
+					"$ref": "#/$defs/entries"
+				}
+			],
+			"items": {
+				"$ref": "#/$defs/sessionStartEntry"
+			}
+		},
+		"afterEditEntries": {
+			"allOf": [
+				{
+					"$ref": "#/$defs/entries"
+				}
+			],
+			"items": {
+				"$ref": "#/$defs/afterEditEntry"
+			}
+		},
+		"beforeStopEntries": {
+			"allOf": [
+				{
+					"$ref": "#/$defs/entries"
+				}
+			],
+			"items": {
+				"$ref": "#/$defs/beforeStopEntry"
+			}
+		},
+		"sessionEndEntries": {
+			"allOf": [
+				{
+					"$ref": "#/$defs/entries"
+				}
+			],
+			"items": {
+				"$ref": "#/$defs/sessionEndEntry"
+			}
+		},
+		"entry": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"id",
+				"command",
+				"output"
+			],
+			"properties": {
+				"id": {
+					"type": "string",
+					"pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+				},
+				"command": {
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 4096
+				},
+				"args": {
+					"type": "array",
+					"maxItems": 64,
+					"items": {
+						"type": "string",
+						"maxLength": 4096
+					}
+				},
+				"timeoutMs": {
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 300000
+				},
+				"when": {
+					"$ref": "#/$defs/when"
+				},
+				"output": {
+					"$ref": "#/$defs/output"
+				},
+				"blockOnFailure": {
+					"type": "boolean"
+				}
+			},
+			"allOf": [
+				{
+					"if": {
+						"properties": {
+							"output": {
+								"properties": {
+									"mode": {
+										"const": "summarize"
+									}
+								},
+								"required": [
+									"mode"
+								]
+							}
+						}
+					},
+					"then": {
+						"properties": {
+							"output": {
+								"required": [
+									"instruction"
+								]
+							}
+						}
+					},
+					"else": {
+						"properties": {
+							"output": {
+								"not": {
+									"required": [
+										"instruction"
+									]
+								}
+							}
+						}
+					}
+				}
+			]
+		},
+		"sessionStartEntry": {
+			"allOf": [
+				{
+					"$ref": "#/$defs/entry"
+				},
+				{
+					"not": {
+						"required": [
+							"blockOnFailure"
+						]
+					}
+				},
+				{
+					"properties": {
+						"when": {
+							"not": {
+								"required": [
+									"changedFiles"
+								]
+							}
+						}
+					}
+				}
+			]
+		},
+		"afterEditEntry": {
+			"allOf": [
+				{
+					"$ref": "#/$defs/entry"
+				},
+				{
+					"not": {
+						"required": [
+							"blockOnFailure"
+						]
+					}
+				},
+				{
+					"properties": {
+						"when": {
+							"not": {
+								"required": [
+									"sessionSource"
+								]
+							}
+						}
+					}
+				}
+			]
+		},
+		"beforeStopEntry": {
+			"allOf": [
+				{
+					"$ref": "#/$defs/entry"
+				},
+				{
+					"properties": {
+						"when": {
+							"not": {
+								"anyOf": [
+									{
+										"required": [
+											"sessionSource"
+										]
+									},
+									{
+										"required": [
+											"changedFiles"
+										]
+									}
+								]
+							}
+						}
+					}
+				}
+			]
+		},
+		"sessionEndEntry": {
+			"allOf": [
+				{
+					"$ref": "#/$defs/entry"
+				},
+				{
+					"not": {
+						"required": [
+							"blockOnFailure"
+						]
+					}
+				},
+				{
+					"properties": {
+						"when": {
+							"not": {
+								"anyOf": [
+									{
+										"required": [
+											"sessionSource"
+										]
+									},
+									{
+										"required": [
+											"changedFiles"
+										]
+									}
+								]
+							}
+						},
+						"output": {
+							"properties": {
+								"mode": {
+									"const": "silent"
+								}
+							}
+						}
+					}
+				}
+			]
+		},
+		"when": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"runtime": {
+					"type": "array",
+					"minItems": 1,
+					"maxItems": 2,
+					"uniqueItems": true,
+					"items": {
+						"enum": [
+							"codex",
+							"claude"
+						]
+					}
+				},
+				"sessionSource": {
+					"type": "array",
+					"minItems": 1,
+					"maxItems": 4,
+					"uniqueItems": true,
+					"items": {
+						"enum": [
+							"startup",
+							"resume",
+							"clear",
+							"compact"
+						]
+					}
+				},
+				"changedFiles": {
+					"type": "object",
+					"additionalProperties": false,
+					"required": [
+						"source"
+					],
+					"properties": {
+						"source": {
+							"enum": [
+								"event",
+								"workingTree",
+								"staged"
+							]
+						},
+						"include": {
+							"$ref": "#/$defs/globs"
+						},
+						"exclude": {
+							"$ref": "#/$defs/globs"
+						}
+					}
+				}
+			}
+		},
+		"globs": {
+			"type": "array",
+			"maxItems": 32,
+			"items": {
+				"type": "string",
+				"minLength": 1,
+				"maxLength": 512
+			}
+		},
+		"output": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"mode",
+				"when"
+			],
+			"properties": {
+				"mode": {
+					"enum": [
+						"silent",
+						"passthrough",
+						"summarize"
+					]
+				},
+				"when": {
+					"enum": [
+						"always",
+						"failure"
+					]
+				},
+				"instruction": {
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 2000
+				}
+			}
+		}
+	},
+	"$id": "https://raw.githubusercontent.com/replace-with-org/work/v0.0.0/schemas/work.schema.json"
+}

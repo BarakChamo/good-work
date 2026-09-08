@@ -1,0 +1,119 @@
+{
+	"name": "@replace-with-org/work",
+	"version": "0.0.0",
+	"private": true,
+	"description": "File-defined, local-first work coordination for humans and coding agents",
+	"keywords": [
+		"agents",
+		"beads",
+		"claude",
+		"cli",
+		"codex",
+		"local-first",
+		"work-management"
+	],
+	"homepage": "https://github.com/replace-with-org/work#readme",
+	"bugs": {
+		"url": "https://github.com/replace-with-org/work/issues"
+	},
+	"license": "Apache-2.0",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/replace-with-org/work.git"
+	},
+	"funding": "https://github.com/sponsors/replace-with-org",
+	"bin": {
+		"work": "./bin/work.ts"
+	},
+	"files": [
+		"bin/work.ts",
+		"src/**/*.ts",
+		"skills/work/**",
+		"schemas/work.schema.json",
+		"README.md",
+		"LICENSE",
+		"!src/**/*.test.ts",
+		"!src/**/*.int.test.ts"
+	],
+	"os": [
+		"darwin",
+		"linux",
+		"win32"
+	],
+	"cpu": [
+		"arm64",
+		"x64"
+	],
+	"type": "module",
+	"imports": {
+		"#work/*": "./src/*.ts"
+	},
+	"exports": {
+		".": "./src/index.ts",
+		"./beads": "./src/beads.ts",
+		"./cli": "./src/cli.ts",
+		"./installer": "./src/beads-installer.ts",
+		"./provider": "./src/provider.ts"
+	},
+	"publishConfig": {
+		"access": "public",
+		"provenance": true
+	},
+	"scripts": {
+		"work": "bun run bin/work.ts",
+		"format": "oxfmt --write .",
+		"format:check": "oxfmt --check .",
+		"lint": "oxlint --fix --format=agent --threads=4 .",
+		"lint:check": "oxlint --format=agent --threads=4 .",
+		"typecheck": "tsc -p tsconfig.json --noEmit",
+		"test:unit": "vitest run --config vitest.config.ts",
+		"test:int": "vitest run --config vitest.local-integration.config.ts",
+		"test:package": "vitest run --config vitest.local-integration.config.ts src/package-install.int.test.ts",
+		"test:plugin": "vitest run --config vitest.config.ts src/plugin.test.ts && vitest run --config vitest.local-integration.config.ts src/plugin.int.test.ts",
+		"plugin:validate:codex": "npm exec --yes --package=@openai/codex@0.153.4 -- bun run scripts/codex-marketplace-smoke.ts",
+		"plugin:validate:claude": "npm exec --yes --package=@anthropic-ai/claude-code@2.1.263 -- bun run scripts/claude-plugin-smoke.ts",
+		"test:portability": "bun run scripts/portability-smoke.ts",
+		"test:eval-driver": "vitest run --config vitest.eval.config.ts",
+		"test:coverage": "vitest run --coverage --config vitest.config.ts",
+		"test:all": "bun run test:unit && bun run test:int && bun run test:package",
+		"check:docs": "rumdl check --deny-config-warnings . && bun run scripts/check-docs.ts",
+		"check:generated": "bun run scripts/sync-release-assets.ts --check",
+		"check:package": "bun run scripts/check-package.ts",
+		"check:identity": "bun run scripts/check-release-identity.ts",
+		"check": "bun run format:check && bun run lint:check && bun run typecheck && bun run check:docs && bun run check:generated && bun run test:unit && bun run test:plugin && bun run check:package",
+		"test:release": "bun run check && bun run plugin:validate:codex && bun run plugin:validate:claude && bun run test:int && bun run test:package && bun run test:eval-driver && bun run test:portability",
+		"changeset": "changeset",
+		"version": "changeset version && bun run sync:release-assets && bun run check:generated",
+		"sync:release-assets": "bun run scripts/sync-release-assets.ts",
+		"configure:identity": "bun run scripts/configure-identity.ts",
+		"eval:live": "bun run evals/live.ts"
+	},
+	"dependencies": {
+		"@beads/bd": "1.2.2",
+		"@stricli/core": "1.3.0",
+		"picomatch": "4.0.4",
+		"valibot": "1.4.2",
+		"yaml": "2.9.0"
+	},
+	"devDependencies": {
+		"@changesets/changelog-github": "1.0.1",
+		"@changesets/cli": "3.0.2",
+		"@cyclonedx/cyclonedx-npm": "6.0.1",
+		"@modelcontextprotocol/client": "2.0.0",
+		"@modelcontextprotocol/server": "2.0.0",
+		"@types/node": "24.10.2",
+		"@types/picomatch": "4.0.3",
+		"@vitest/coverage-v8": "4.1.6",
+		"oxfmt": "0.60.0",
+		"oxlint": "1.75.0",
+		"oxlint-tsgolint": "7.0.2001",
+		"rumdl": "0.2.46",
+		"typescript": "7.0.2",
+		"vitest": "4.1.6",
+		"zod": "4.4.3"
+	},
+	"engines": {
+		"bun": ">=1.3.7"
+	},
+	"packageManager": "bun@1.3.7"
+}

@@ -1,0 +1,9 @@
+#!/bin/sh
+
+# Immutable bridge: repository configuration and trust remain owned by the Work CLI.
+if command -v work >/dev/null 2>&1; then
+  exec work hooks dispatch --runtime auto
+fi
+
+printf '%s\n' 'work plugin: work CLI is unavailable; hook skipped.' >&2
+exit 0
