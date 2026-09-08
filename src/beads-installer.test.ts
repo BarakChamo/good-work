@@ -157,6 +157,34 @@ describe('verified Beads installer', () => {
 		})
 	})
 
+	it('keeps a verified installation successful when only OS temp cleanup is blocked', async () => {
+		expect.hasAssertions()
+		const archiveBytes = new TextEncoder().encode('fixture-archive')
+		const archiveName = 'beads_1.2.2_windows_arm64.zip'
+		const checksum = createHash('sha256').update(archiveBytes).digest('hex')
+		const runtime = createRuntime({
+			fetch: vi
+				.fn<BeadsInstallerRuntime['fetch']>()
+				.mockResolvedValueOnce(new Response(`${checksum}  ${archiveName}\n`, { status: 200 }))
+				.mockResolvedValueOnce(new Response(archiveBytes, { status: 200 })),
+			platform: 'win32',
+			spawn: vi
+				.fn<BeadsInstallerRuntime['spawn']>()
+				.mockReturnValueOnce({ status: 0, stdout: '' })
+				.mockReturnValueOnce({ status: 0, stdout: 'bd version 1.2.2 (fixture)' }),
+			remove: async (path: string) => {
+				if (path.includes('work-contract-beads-install-')) {
+					throw new Error('simulated Windows scanner lock')
+				}
+			},
+		})
+
+		await expect(installPinnedBeads(runtime)).resolves.toEqual({
+			ok: true,
+			value: 'bd version 1.2.2 (fixture)',
+		})
+	})
+
 	it('keeps cleanup diagnostics free of concrete paths', () => {
 		expect.hasAssertions()
 		expect(installationFailure('cleanup', ['provider_binary_directory'])).toMatchObject({

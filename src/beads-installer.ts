@@ -282,7 +282,10 @@ export const installPinnedBeads = async (
 			}
 		}
 	}
-	if (failedCleanupTargets.length > 0) {
+	if (
+		failedCleanupTargets.length > 0 &&
+		(!result.ok || failedCleanupTargets.includes('provider_binary_directory'))
+	) {
 		return installationFailure(result.ok ? 'cleanup' : stage, failedCleanupTargets)
 	}
 	return result
