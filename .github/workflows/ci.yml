@@ -51,6 +51,7 @@ jobs:
         with:
           bun-version: ${{ env.BUN_VERSION }}
       - run: bun install --frozen-lockfile
+      - run: bun run test:provider
       - run: bun run test:int
 
   package:
@@ -62,6 +63,7 @@ jobs:
         with:
           bun-version: ${{ env.BUN_VERSION }}
       - run: bun install --frozen-lockfile
+      - run: bun run test:provider
       - run: bun run test:package
       - run: bun run check:package
 

@@ -20,7 +20,9 @@ with OpenID Connect for publication. No npm write token belongs in GitHub.
    dormant while ordinary CI remains active.
 
 Staged publishing requires an existing npm package. After `bun run test:release`
-passes on the exact clean commit, build and inspect the bootstrap artifacts:
+passes on the exact clean commit, build and inspect the bootstrap artifacts.
+The release gate explicitly installs the checksum-verified provider before its
+real-provider tests; dependency installation never performs that download:
 
 ```sh
 RELEASE_VERSION=0.0.0 bun run scripts/build-release-artifacts.ts
