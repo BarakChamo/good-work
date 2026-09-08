@@ -352,6 +352,18 @@ else process.exit(9)
 		).resolves.toMatchObject({ ok: true, value: { version: '1.2.2' } })
 	})
 
+	it('disables the Beads daemon for every provider subprocess', async () => {
+		const binary = await writeFakeBinary(`
+if (process.env.BEADS_NO_DAEMON !== '1') process.exit(9)
+if (process.argv[2] === 'version') console.log('bd version 1.2.2')
+else process.exit(9)
+`)
+
+		await expect(
+			createBeadsProvider({ root, projectId: 'example', binary }).doctor(),
+		).resolves.toMatchObject({ ok: true, value: { version: '1.2.2' } })
+	})
+
 	it('runs decorated provider reads in Beads read-only mode', async () => {
 		const argsLog = join(root, 'args.log')
 		const binary = await writeFakeBinary(`

@@ -479,6 +479,7 @@ const providerSubprocessEnvironment = (): NodeJS.ProcessEnv => {
 		...environment,
 		BD_NON_INTERACTIVE: '1',
 		BEADS_ACTOR: 'work-contract',
+		BEADS_NO_DAEMON: '1',
 		DO_NOT_TRACK: '1',
 		NO_COLOR: '1',
 	}
