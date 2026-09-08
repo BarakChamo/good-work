@@ -68,7 +68,9 @@ Download and inspect the npm staged artifact, then approve it with npm 2FA.
 ## Finalize
 
 Dispatch `finalize-release.yml` with the same version. It verifies that npm
-reports the version, repository identity, and `gitHead` matching the tag, then
+verifies the registry signatures and attestations, then confirms the version,
+trusted-publisher identity, package digest, and signed provenance source commit
+match the tag before it
 publishes the existing draft GitHub Release.
 
 After 0.1.0 is public, remove the `bootstrap` dist-tag.
