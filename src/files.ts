@@ -30,7 +30,13 @@ export const INPUT_LIMITS = Object.freeze({
 	providerAggregateBytes: 1024 * (48 * 1024 + 1) + 2,
 })
 
-const noFollow = constants.O_NOFOLLOW ?? 0
+/** @internal Resolves the portable no-follow flag without passing unsupported POSIX flags on Windows. */
+export const resolveNoFollowFlag = (
+	platform: NodeJS.Platform,
+	candidate: number | undefined,
+): number => (platform === 'win32' ? 0 : (candidate ?? 0))
+
+const noFollow = resolveNoFollowFlag(process.platform, constants.O_NOFOLLOW)
 
 const SAFE_SYSTEM_ERROR_CODES = new Set([
 	'EACCES',

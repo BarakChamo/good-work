@@ -13,7 +13,12 @@ import { join } from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { readBoundedContainedFile, readBoundedFile, writeUtf8NoFollow } from './files'
+import {
+	readBoundedContainedFile,
+	readBoundedFile,
+	resolveNoFollowFlag,
+	writeUtf8NoFollow,
+} from './files'
 
 const PRIVATE_CANARY = 'PRIVATE_FILE_CANARY_/Users/operator/secret.md'
 
@@ -55,6 +60,11 @@ afterEach(async () => {
 })
 
 describe('bounded file reads', () => {
+	it('does not pass the unavailable no-follow flag to Windows file opens', () => {
+		expect(resolveNoFollowFlag('win32', 131_072)).toBe(0)
+		expect(resolveNoFollowFlag('linux', 131_072)).toBe(131_072)
+	})
+
 	it('rejects an intermediate-directory swap after opening a contained reference', async () => {
 		expect.hasAssertions()
 		const outside = await mkdtemp(join(tmpdir(), 'work-contract-files-outside-'))
