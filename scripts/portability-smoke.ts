@@ -12,6 +12,13 @@ const archiveRoot = join(temporaryRoot, 'package archive')
 const installRoot = join(temporaryRoot, 'global installation')
 const repositoryRoot = join(temporaryRoot, 'repository with spaces')
 
+const isWindowsCleanupContention = (error: unknown): boolean =>
+	process.platform === 'win32' &&
+	typeof error === 'object' &&
+	error !== null &&
+	'code' in error &&
+	(error.code === 'EACCES' || error.code === 'EPERM')
+
 const run = (
 	command: string,
 	args: readonly string[],
@@ -114,5 +121,18 @@ try {
 		`Portable installed-product smoke passed on ${process.platform}/${process.arch}.\n`,
 	)
 } finally {
-	await rm(temporaryRoot, { force: true, recursive: true })
+	try {
+		await rm(temporaryRoot, { force: true, recursive: true })
+	} catch (error) {
+		if (isWindowsCleanupContention(error)) {
+			process.stderr.write(
+				'Windows retained a transient lock on the disposable portability fixture; the hosted runner will remove it.\n',
+			)
+		} else {
+			process.stderr.write(
+				`Failed to remove the disposable portability fixture: ${error instanceof Error ? error.message : 'unknown error'}\n`,
+			)
+			process.exitCode = 1
+		}
+	}
 }
