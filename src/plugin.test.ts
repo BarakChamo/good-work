@@ -56,6 +56,15 @@ describe('work plugin artifact', () => {
 		await expect(access(resolve(pluginRoot, 'package.json'))).rejects.toThrow('ENOENT')
 	})
 
+	it('documents the PATH-visible CLI prerequisite used by the bridge', async () => {
+		expect.hasAssertions()
+		const readme = await readFile(resolve(pluginRoot, 'README.md'), 'utf8')
+
+		expect(readme).toContain('npm install --global --ignore-scripts @good-work/work')
+		expect(readme).toContain('work provider install')
+		expect(readme).not.toContain('bun add --dev --ignore-scripts @good-work/work')
+	})
+
 	it('registers only portable native hook events through the immutable bridge', async () => {
 		expect.hasAssertions()
 		const source = await readFile(resolve(pluginRoot, 'hooks/hooks.json'), 'utf8')

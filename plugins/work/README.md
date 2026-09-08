@@ -5,13 +5,18 @@ and Claude hook events into a separately installed Work CLI.
 
 ## Prerequisite
 
-Install the Work package and verify the CLI first:
+Install the Work package globally so the immutable bridge can resolve `work`
+from `PATH`, then install its verified provider:
 
 ```sh
-bun add --dev --ignore-scripts @good-work/work
-bun run work provider install
-bun run work --help
+npm install --global --ignore-scripts @good-work/work
+work provider install
+work --help
 ```
+
+A repository may additionally pin `@good-work/work` and expose it through a
+package script for lifecycle commands. That does not replace the PATH-visible
+CLI required by the plugin bridge.
 
 The bridge invokes `work hooks dispatch`. It never runs a repository package
 script as a fallback and never installs dependencies.
