@@ -23,8 +23,6 @@ describe('release command paths', () => {
 			'npm stage publish "./dist/work-${RELEASE_VERSION}.tgz" --access public --tag latest',
 		)
 		expect(runbook).toContain('(cd dist && shasum -a 256 -c work-0.0.0.tgz.sha256)')
-		expect(runbook).toContain(
-			'npm publish ./dist/work-0.0.0.tgz --access public --tag bootstrap',
-		)
+		expect(runbook).toContain('npm publish ./dist/work-0.0.0.tgz --access public --tag bootstrap')
 	})
 })
