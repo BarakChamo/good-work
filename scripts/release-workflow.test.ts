@@ -30,6 +30,7 @@ describe('release command paths', () => {
 
 	it('cryptographically verifies the public package before finalizing its release', async () => {
 		const workflow = await readFile(resolve(root, '.github/workflows/finalize-release.yml'), 'utf8')
+		const jobHeader = workflow.slice(0, workflow.indexOf('    steps:'))
 
 		expect(workflow).toContain(
 			'npm install --ignore-scripts --registry=https://registry.npmjs.org "@good-work/work@${RELEASE_VERSION}"',
@@ -37,5 +38,7 @@ describe('release command paths', () => {
 		expect(workflow).toContain(
 			'npm audit signatures --json --include-attestations --registry=https://registry.npmjs.org > "$NPM_AUDIT_SIGNATURES_PATH"',
 		)
+		expect(jobHeader).not.toContain('NPM_AUDIT_SIGNATURES_PATH')
+		expect(workflow.match(/NPM_AUDIT_SIGNATURES_PATH: \$\{\{ runner\.temp \}\}/g)).toHaveLength(2)
 	})
 })
