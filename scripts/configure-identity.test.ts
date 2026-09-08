@@ -36,10 +36,10 @@ describe('project identity configuration', () => {
 					private: true,
 					repository: {
 						type: 'git',
-						url: 'git+https://github.com/replace-with-org/work.git',
+						url: 'git+https://github.com/BarakChamo/good-work.git',
 					},
-					bugs: { url: 'https://github.com/replace-with-org/work/issues' },
-					homepage: 'https://github.com/replace-with-org/work#readme',
+					bugs: { url: 'https://github.com/BarakChamo/good-work/issues' },
+					homepage: 'https://github.com/BarakChamo/good-work#readme',
 				},
 				null,
 				2,
@@ -47,15 +47,15 @@ describe('project identity configuration', () => {
 		)
 		await writeFile(
 			join(root, '.changeset/config.json'),
-			`${JSON.stringify({ changelog: ['@changesets/changelog-github', { repo: 'replace-with-org/work' }] }, null, 2)}\n`,
+			`${JSON.stringify({ changelog: ['@changesets/changelog-github', { repo: 'BarakChamo/good-work' }] }, null, 2)}\n`,
 		)
 		await writeFile(
 			join(root, '.changeset/initial.md'),
 			'---\n"@replace-with-org/work": minor\n---\n',
 		)
-		await writeFile(join(root, 'README.md'), '@your-org/work and your-org/work\n')
+		await writeFile(join(root, 'README.md'), '@your-org/work\n')
 		await writeFile(join(root, 'plugins/work/README.md'), '@your-org/work\n')
-		await writeFile(join(root, '.github/CODEOWNERS'), '* @replace-with-org/work-maintainers\n')
+		await writeFile(join(root, '.github/CODEOWNERS'), '* @BarakChamo\n')
 
 		await configureProjectIdentity({ root, organization: 'acme-tools' })
 
@@ -63,20 +63,17 @@ describe('project identity configuration', () => {
 		expect(packageDocument).toMatchObject({
 			name: '@acme-tools/work',
 			private: false,
-			repository: { url: 'git+https://github.com/acme-tools/work.git' },
-			funding: 'https://github.com/sponsors/acme-tools',
+			repository: { url: 'git+https://github.com/BarakChamo/good-work.git' },
 		})
 		await expect(readFile(join(root, '.changeset/initial.md'), 'utf8')).resolves.toContain(
 			'"@acme-tools/work": minor',
 		)
-		await expect(readFile(join(root, 'README.md'), 'utf8')).resolves.toBe(
-			'@acme-tools/work and acme-tools/work\n',
-		)
+		await expect(readFile(join(root, 'README.md'), 'utf8')).resolves.toBe('@acme-tools/work\n')
 		await expect(readFile(join(root, '.github/CODEOWNERS'), 'utf8')).resolves.toBe(
-			'* @acme-tools/work-maintainers\n',
+			'* @BarakChamo\n',
 		)
 		expect(JSON.parse(await readFile(join(root, '.changeset/config.json'), 'utf8'))).toMatchObject({
-			changelog: ['@changesets/changelog-github', { repo: 'acme-tools/work' }],
+			changelog: ['@changesets/changelog-github', { repo: 'BarakChamo/good-work' }],
 		})
 	})
 
@@ -88,7 +85,7 @@ describe('project identity configuration', () => {
 		await writeFile(join(root, '.changeset/config.json'), '{}\n')
 
 		await expect(configureProjectIdentity({ root, organization: '../unsafe' })).rejects.toThrow(
-			'valid GitHub and npm organization slug',
+			'valid npm organization slug',
 		)
 		await expect(configureProjectIdentity({ root, organization: 'other' })).rejects.toThrow(
 			'already configured',

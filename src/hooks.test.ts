@@ -48,7 +48,7 @@ const writeCommittedConfig = async (root: string, document: unknown): Promise<vo
 }
 
 const publicSchema =
-	'https://raw.githubusercontent.com/replace-with-org/work/v0.0.0/schemas/work.schema.json'
+	'https://raw.githubusercontent.com/BarakChamo/good-work/v0.0.0/schemas/work.schema.json'
 
 const config = (hooks: Readonly<Record<string, readonly unknown[]>>) => ({
 	$schema: publicSchema,

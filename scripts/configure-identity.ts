@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * @description Configures the owner-supplied GitHub/npm organization exactly once.
+ * @description Configures the owner-supplied npm organization exactly once.
  *
  * @module work/configure-identity
  * @file Configure-identity.ts
@@ -30,9 +30,7 @@ const replaceInOptionalFile = async (
 	if (source === null) return
 	const updated = source
 		.replaceAll('@your-org/work', `@${organization}/work`)
-		.replaceAll('your-org/work', `${organization}/work`)
 		.replaceAll('@replace-with-org/work', `@${organization}/work`)
-		.replaceAll('replace-with-org/work', `${organization}/work`)
 	if (updated !== source) await writeFile(file, updated)
 }
 
@@ -50,34 +48,20 @@ export const configureProjectIdentity = async (input: {
 	readonly organization: string
 }): Promise<void> => {
 	if (!organizationPattern.test(input.organization)) {
-		throw new TypeError('Organization must be a valid GitHub and npm organization slug.')
+		throw new TypeError('Organization must be a valid npm organization slug.')
 	}
 	const packagePath = join(input.root, 'package.json')
-	const changesetPath = join(input.root, '.changeset/config.json')
 	const packageDocument = parseRecord(await readFile(packagePath, 'utf8'), 'package.json')
 	const packageName = packageDocument.name
 	if (packageName !== `@${placeholder}/work` && packageName !== `@${input.organization}/work`) {
 		throw new Error('Project identity is already configured for another organization.')
 	}
-	const changesetDocument = parseRecord(await readFile(changesetPath, 'utf8'), 'Changesets config')
-	const repositoryUrl = `https://github.com/${input.organization}/work`
 	await writeFile(
 		packagePath,
 		json({
 			...packageDocument,
 			name: `@${input.organization}/work`,
 			private: false,
-			repository: { type: 'git', url: `git+${repositoryUrl}.git` },
-			bugs: { url: `${repositoryUrl}/issues` },
-			homepage: `${repositoryUrl}#readme`,
-			funding: `https://github.com/sponsors/${input.organization}`,
-		}),
-	)
-	await writeFile(
-		changesetPath,
-		json({
-			...changesetDocument,
-			changelog: ['@changesets/changelog-github', { repo: `${input.organization}/work` }],
 		}),
 	)
 	const changesetFiles = await readdir(join(input.root, '.changeset')).catch(() => [])
@@ -86,8 +70,6 @@ export const configureProjectIdentity = async (input: {
 			'README.md',
 			'plugins/work/README.md',
 			'examples/basic/work.json',
-			'.github/CODEOWNERS',
-			'.github/ISSUE_TEMPLATE/config.yml',
 			...changesetFiles.filter((path) => path.endsWith('.md')).map((path) => `.changeset/${path}`),
 		].map((path) => replaceInOptionalFile(input.root, path, input.organization)),
 	)
@@ -96,7 +78,7 @@ export const configureProjectIdentity = async (input: {
 const main = async (): Promise<void> => {
 	const organization = process.argv[2]
 	if (organization === undefined) {
-		throw new Error('Usage: bun run configure:identity -- <github-and-npm-org>')
+		throw new Error('Usage: bun run configure:identity -- <npm-organization>')
 	}
 	const root = resolve(import.meta.dirname, '..')
 	await configureProjectIdentity({ root, organization })

@@ -39,9 +39,12 @@ describe('release asset synchronization', () => {
 			mkdir(join(root, 'schemas'), { recursive: true }),
 		])
 		await writeJson(join(root, 'package.json'), {
-			name: '@acme/work',
+			name: '@npm-acme/work',
 			version: '1.2.3',
-			repository: { type: 'git', url: 'git+https://github.com/acme/work.git' },
+			repository: {
+				type: 'git',
+				url: 'git+https://github.com/BarakChamo/good-work.git',
+			},
 		})
 		await writeFile(join(root, 'skills/work/SKILL.md'), 'canonical skill\n')
 		await writeFile(join(root, 'skills/work/references/commands.md'), 'canonical commands\n')
@@ -95,18 +98,19 @@ describe('release asset synchronization', () => {
 			JSON.parse(await readFile(join(root, '.claude-plugin/marketplace.json'), 'utf8')),
 		).toMatchObject({ version: '1.2.3', plugins: [{ name: 'work', version: '1.2.3' }] })
 		expect(await readFile(join(root, 'src/release-identity.ts'), 'utf8')).toContain(
-			"export const WORK_REPOSITORY = 'acme/work'",
+			"export const WORK_REPOSITORY = 'BarakChamo/good-work'",
 		)
 		expect(
 			JSON.parse(await readFile(join(root, 'examples/basic/work.json'), 'utf8')),
 		).toMatchObject({
-			$schema: 'https://raw.githubusercontent.com/acme/work/v1.2.3/schemas/work.schema.json',
+			$schema:
+				'https://raw.githubusercontent.com/BarakChamo/good-work/v1.2.3/schemas/work.schema.json',
 			version: 1,
 		})
 		expect(
 			JSON.parse(await readFile(join(root, 'schemas/work.schema.json'), 'utf8')),
 		).toMatchObject({
-			$id: 'https://raw.githubusercontent.com/acme/work/v1.2.3/schemas/work.schema.json',
+			$id: 'https://raw.githubusercontent.com/BarakChamo/good-work/v1.2.3/schemas/work.schema.json',
 		})
 		await expect(synchronizeReleaseAssets({ root, check: true })).resolves.toEqual({
 			changedPaths: [],

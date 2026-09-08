@@ -5,14 +5,14 @@ with OpenID Connect for publication. No npm write token belongs in GitHub.
 
 ## One-time owner setup
 
-1. Choose one slug available as both a GitHub organization and npm organization.
-2. Run `bun run configure:identity -- <organization>` and review every change.
-3. Create the public `<organization>/work` repository and push the clean import.
+1. Confirm the public `BarakChamo/good-work` repository contains the clean import.
+2. Choose the npm organization that will own `@<organization>/work`.
+3. Run `bun run configure:identity -- <npm-organization>` and review every change.
 4. Enable branch protection, secret scanning, push protection, private
    vulnerability reporting, and Actions pull-request creation.
 5. Install Changeset Bot.
-6. Create an organization team named `work-maintainers`, grant it repository
-   write access, and confirm every CODEOWNERS path resolves to that team.
+6. Add a second maintainer when available. If the repository later moves into an
+   organization, create a maintainer team and update CODEOWNERS accordingly.
 7. Create a protected `npm-stage` GitHub environment requiring maintainer review.
 8. Add at least one second GitHub and npm maintainer when available.
 
@@ -31,7 +31,8 @@ npm publish dist/work-0.0.0.tgz --access public --tag bootstrap
 ```
 
 Publish version `0.0.0` only. Then configure the npm trusted publisher for the
-exact organization, repository, `stage-release.yml` workflow, and `npm-stage`
+exact npm package, `BarakChamo/good-work` repository, `stage-release.yml`
+workflow, and `npm-stage`
 environment. Select stage-only permission, require 2FA, disallow publishing
 tokens, and revoke any temporary automation credentials.
 

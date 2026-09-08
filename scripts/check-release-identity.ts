@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * @description Blocks publication until owner-supplied npm and GitHub identity is exact.
+ * @description Blocks publication until owner-supplied npm and GitHub identities are exact.
  *
  * @module work/check-release-identity
  * @file Check-release-identity.ts
@@ -28,7 +28,7 @@ const repositoryUrl =
 const repositoryMatch =
 	repositoryUrl === undefined
 		? undefined
-		: /^git\+https:\/\/github\.com\/([^/]+\/work)\.git$/u.exec(repositoryUrl)
+		: /^git\+https:\/\/github\.com\/([^/]+\/[^/]+)\.git$/u.exec(repositoryUrl)
 const packageMatch = typeof name === 'string' ? /^@([^/]+)\/work$/u.exec(name) : undefined
 if (
 	!('private' in document) ||
@@ -36,12 +36,12 @@ if (
 	packageMatch?.[1] === undefined ||
 	packageMatch[1] === 'replace-with-org' ||
 	repositoryMatch?.[1] === undefined ||
-	repositoryMatch[1] !== `${packageMatch[1]}/work` ||
+	repositoryMatch[1].includes('replace-with-org') ||
 	typeof version !== 'string' ||
 	!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(version)
 ) {
 	throw new Error(
-		'Release identity is unresolved. Run bun run configure:identity -- <organization> and review the result.',
+		'Release identity is unresolved. Run bun run configure:identity -- <npm-organization> and review the result.',
 	)
 }
 if (typeof name !== 'string' || repositoryMatch?.[1] === undefined) {

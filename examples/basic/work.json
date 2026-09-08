@@ -1,5 +1,5 @@
 {
-	"$schema": "https://raw.githubusercontent.com/replace-with-org/work/v0.0.0/schemas/work.schema.json",
+	"$schema": "https://raw.githubusercontent.com/BarakChamo/good-work/v0.0.0/schemas/work.schema.json",
 	"version": 1,
 	"hooks": {
 		"afterEdit": [

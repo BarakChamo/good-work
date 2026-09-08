@@ -44,7 +44,7 @@ const loadIdentity = async (root: string): Promise<PackageIdentity> => {
 	const repositoryMatch =
 		repositoryUrl === undefined
 			? null
-			: /^git\+https:\/\/github\.com\/([^/]+\/work)\.git$/u.exec(repositoryUrl)
+			: /^git\+https:\/\/github\.com\/([^/]+\/[^/]+)\.git$/u.exec(repositoryUrl)
 	if (
 		typeof document.name !== 'string' ||
 		!/^@[^/]+\/work$/u.test(document.name) ||

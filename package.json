@@ -12,16 +12,15 @@
 		"local-first",
 		"work-management"
 	],
-	"homepage": "https://github.com/replace-with-org/work#readme",
+	"homepage": "https://github.com/BarakChamo/good-work#readme",
 	"bugs": {
-		"url": "https://github.com/replace-with-org/work/issues"
+		"url": "https://github.com/BarakChamo/good-work/issues"
 	},
 	"license": "Apache-2.0",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/replace-with-org/work.git"
+		"url": "git+https://github.com/BarakChamo/good-work.git"
 	},
-	"funding": "https://github.com/sponsors/replace-with-org",
 	"bin": {
 		"work": "./bin/work.ts"
 	},

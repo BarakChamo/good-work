@@ -16,6 +16,11 @@ dependency-free plugin adds trusted, repository-configured engineering hooks.
 
 Work requires [Bun](https://bun.sh/) 1.3.7 or newer.
 
+> The npm scope has not been selected yet, so the commands below retain the
+> `@your-org/work` placeholder until the first publication. For development,
+> clone this repository, run `bun install --frozen-lockfile`, and use
+> `bun run work`.
+
 Install it globally when several repositories should share one CLI:
 
 ```sh
@@ -119,10 +124,10 @@ on the separately installed `work` executable and does not contain package
 dependencies or installation scripts.
 
 ```text
-Codex:       codex plugin marketplace add your-org/work
+Codex:       codex plugin marketplace add BarakChamo/good-work
              codex plugin add work@work
 
-Claude Code: /plugin marketplace add your-org/work
+Claude Code: /plugin marketplace add BarakChamo/good-work
              /plugin install work@work
 ```
 
