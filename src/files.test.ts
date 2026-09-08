@@ -7,6 +7,7 @@
 
 /* oxlint-disable typescript/consistent-type-imports, vitest/prefer-import-in-mock -- Typed Vitest built-in-module interception is required to inject a file-handle cleanup failure. */
 
+import { constants } from 'node:fs'
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -17,6 +18,7 @@ import {
 	readBoundedContainedFile,
 	readBoundedFile,
 	resolveNoFollowFlag,
+	resolveWriteOpenFlags,
 	writeUtf8NoFollow,
 } from './files'
 
@@ -63,6 +65,11 @@ describe('bounded file reads', () => {
 	it('does not pass the unavailable no-follow flag to Windows file opens', () => {
 		expect(resolveNoFollowFlag('win32', 131_072)).toBe(0)
 		expect(resolveNoFollowFlag('linux', 131_072)).toBe(131_072)
+		expect(resolveWriteOpenFlags('win32', 'exclusive', 131_072)).toBe('wx')
+		expect(resolveWriteOpenFlags('win32', 'append', 131_072)).toBe('a')
+		expect(resolveWriteOpenFlags('linux', 'exclusive', 131_072)).toBe(
+			131_072 | constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY,
+		)
 	})
 
 	it('rejects an intermediate-directory swap after opening a contained reference', async () => {

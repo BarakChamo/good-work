@@ -38,6 +38,22 @@ export const resolveNoFollowFlag = (
 
 const noFollow = resolveNoFollowFlag(process.platform, constants.O_NOFOLLOW)
 
+/** @internal Uses portable string flags on Windows and no-follow numeric flags on POSIX. */
+export const resolveWriteOpenFlags = (
+	platform: NodeJS.Platform,
+	mode: 'append' | 'exclusive',
+	noFollowCandidate: number | undefined,
+): string | number => {
+	if (platform === 'win32') {
+		return mode === 'append' ? 'a' : 'wx'
+	}
+	return (
+		(mode === 'append'
+			? constants.O_APPEND | constants.O_CREAT | constants.O_WRONLY
+			: constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY) | (noFollowCandidate ?? 0)
+	)
+}
+
 const SAFE_SYSTEM_ERROR_CODES = new Set([
 	'EACCES',
 	'EBUSY',
@@ -248,7 +264,7 @@ export const writeUtf8NoFollow = async (input: {
 		try {
 			temporaryHandle = await open(
 				temporary,
-				constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | noFollow,
+				resolveWriteOpenFlags(process.platform, 'exclusive', constants.O_NOFOLLOW),
 				0o600,
 			)
 			await temporaryHandle.writeFile(input.content, { encoding: 'utf8' })
@@ -267,13 +283,13 @@ export const writeUtf8NoFollow = async (input: {
 		}
 		throw safeFileError('Atomic file replacement failed.', writeError)
 	}
-	const modeFlags = {
-		append: constants.O_APPEND | constants.O_CREAT | constants.O_WRONLY,
-		exclusive: constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY,
-	} as const
 	let handle: FileHandle
 	try {
-		handle = await open(input.path, modeFlags[input.mode] | noFollow, 0o600)
+		handle = await open(
+			input.path,
+			resolveWriteOpenFlags(process.platform, input.mode, constants.O_NOFOLLOW),
+			0o600,
+		)
 	} catch (error: unknown) {
 		throw safeFileError('File open failed.', error)
 	}
