@@ -11,6 +11,7 @@ import { join, resolve } from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
+import { WORK_SCHEMA_URL } from './release-identity'
 import { executeFile } from './subprocess'
 import {
 	dispatchWorkHooks,
@@ -47,8 +48,7 @@ const writeCommittedConfig = async (root: string, document: unknown): Promise<vo
 	await run('git', ['commit', '-qm', 'configure hooks'], root)
 }
 
-const publicSchema =
-	'https://raw.githubusercontent.com/BarakChamo/good-work/v0.0.0/schemas/work.schema.json'
+const publicSchema = WORK_SCHEMA_URL
 
 const config = (hooks: Readonly<Record<string, readonly unknown[]>>) => ({
 	$schema: publicSchema,
