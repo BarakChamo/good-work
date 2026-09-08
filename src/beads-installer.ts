@@ -64,7 +64,13 @@ const defaultRuntime: BeadsInstallerRuntime = {
 	makeTemporaryDirectory: mkdtemp,
 	platform: process.platform,
 	readFile,
-	remove: async (path, recursive) => rm(path, { force: true, recursive }),
+	remove: async (path, recursive) =>
+		rm(path, {
+			force: true,
+			maxRetries: recursive ? 5 : 0,
+			recursive,
+			retryDelay: 100,
+		}),
 	rename,
 	resolveLauncherPath: () => createRequire(import.meta.url).resolve('@beads/bd/bin/bd.js'),
 	spawn: (command, args) => {
