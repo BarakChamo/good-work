@@ -26,13 +26,13 @@ real-provider tests; dependency installation never performs that download:
 
 ```sh
 RELEASE_VERSION=0.0.0 bun run scripts/build-release-artifacts.ts
-shasum -a 256 -c dist/work-0.0.0.tgz.sha256
+(cd dist && shasum -a 256 -c work-0.0.0.tgz.sha256)
 ```
 
 Create the package once with interactive 2FA:
 
 ```sh
-npm publish dist/work-0.0.0.tgz --access public --tag bootstrap
+npm publish ./dist/work-0.0.0.tgz --access public --tag bootstrap
 ```
 
 Publish version `0.0.0` only. Then configure the npm trusted publisher for the
