@@ -32,7 +32,7 @@ RELEASE_VERSION=0.0.0 bun run scripts/build-release-artifacts.ts
 Create the package once with interactive 2FA:
 
 ```sh
-npm publish ./dist/work-0.0.0.tgz --access public --tag bootstrap
+npm publish ./dist/work-0.0.0.tgz --access public --tag bootstrap --provenance=false
 ```
 
 Publish version `0.0.0` only. Then configure the npm trusted publisher for the
