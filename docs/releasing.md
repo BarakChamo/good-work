@@ -15,6 +15,9 @@ with OpenID Connect for publication. No npm write token belongs in GitHub.
    organization, create a maintainer team and update CODEOWNERS accordingly.
 7. Create a protected `npm-stage` GitHub environment requiring maintainer review.
 8. Add at least one second GitHub and npm maintainer when available.
+9. After npm identity is configured, create the repository variable
+   `NPM_RELEASES_ENABLED=true`. Until then, the release-PR workflow stays
+   dormant while ordinary CI remains active.
 
 Staged publishing requires an existing npm package. After `bun run test:release`
 passes on the exact clean commit, build and inspect the bootstrap artifacts:
