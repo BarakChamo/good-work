@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "@replace-with-org/work",
+      "name": "@good-work/work",
       "dependencies": {
         "@beads/bd": "1.2.2",
         "@stricli/core": "1.3.0",
