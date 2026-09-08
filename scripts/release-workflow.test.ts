@@ -27,4 +27,15 @@ describe('release command paths', () => {
 			'npm publish ./dist/work-0.0.0.tgz --access public --tag bootstrap --provenance=false',
 		)
 	})
+
+	it('cryptographically verifies the public package before finalizing its release', async () => {
+		const workflow = await readFile(resolve(root, '.github/workflows/finalize-release.yml'), 'utf8')
+
+		expect(workflow).toContain(
+			'npm install --ignore-scripts --registry=https://registry.npmjs.org "@good-work/work@${RELEASE_VERSION}"',
+		)
+		expect(workflow).toContain(
+			'npm audit signatures --json --include-attestations --registry=https://registry.npmjs.org > "$NPM_AUDIT_SIGNATURES_PATH"',
+		)
+	})
 })
