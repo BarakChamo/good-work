@@ -56,6 +56,10 @@ describe('project identity configuration', () => {
 		await writeFile(join(root, 'README.md'), '@your-org/work\n')
 		await writeFile(join(root, 'plugins/work/README.md'), '@your-org/work\n')
 		await writeFile(join(root, '.github/CODEOWNERS'), '* @BarakChamo\n')
+		await writeFile(
+			join(root, 'bun.lock'),
+			'{\n  "workspaces": { "": { "name": "@replace-with-org/work" } }\n}\n',
+		)
 
 		await configureProjectIdentity({ root, organization: 'acme-tools' })
 
@@ -69,6 +73,9 @@ describe('project identity configuration', () => {
 			'"@acme-tools/work": minor',
 		)
 		await expect(readFile(join(root, 'README.md'), 'utf8')).resolves.toBe('@acme-tools/work\n')
+		await expect(readFile(join(root, 'bun.lock'), 'utf8')).resolves.toContain(
+			'"name": "@acme-tools/work"',
+		)
 		await expect(readFile(join(root, '.github/CODEOWNERS'), 'utf8')).resolves.toBe(
 			'* @BarakChamo\n',
 		)

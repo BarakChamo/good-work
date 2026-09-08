@@ -47,7 +47,7 @@ jobs:
       - name: Stage exact tarball with npm OIDC
         env:
           RELEASE_VERSION: ${{ inputs.version }}
-        run: npm stage publish "dist/work-${RELEASE_VERSION}.tgz" --access public --tag latest
+        run: npm stage publish "./dist/work-${RELEASE_VERSION}.tgz" --access public --tag latest
       - name: Create immutable source tag
         env:
           RELEASE_VERSION: ${{ inputs.version }}

@@ -52,6 +52,7 @@ if (githubRepository !== undefined && githubRepository !== repositoryMatch[1]) {
 	throw new Error('GITHUB_REPOSITORY does not match package.json release identity.')
 }
 for (const path of [
+	'bun.lock',
 	'README.md',
 	'plugins/work/README.md',
 	'examples/basic/work.json',

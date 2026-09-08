@@ -67,6 +67,7 @@ export const configureProjectIdentity = async (input: {
 	const changesetFiles = await readdir(join(input.root, '.changeset')).catch(() => [])
 	await Promise.all(
 		[
+			'bun.lock',
 			'README.md',
 			'plugins/work/README.md',
 			'examples/basic/work.json',
