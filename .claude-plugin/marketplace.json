@@ -4,13 +4,13 @@
 		"name": "Work contributors"
 	},
 	"description": "Agent-native repository work coordination and advisory engineering hooks.",
-	"version": "0.0.0",
+	"version": "0.1.0",
 	"plugins": [
 		{
 			"name": "work",
 			"source": "./plugins/work",
 			"description": "Use the Work CLI and trusted repository engineering hooks.",
-			"version": "0.0.0",
+			"version": "0.1.0",
 			"license": "Apache-2.0",
 			"category": "Productivity"
 		}
