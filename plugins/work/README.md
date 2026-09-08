@@ -8,7 +8,7 @@ and Claude hook events into a separately installed Work CLI.
 Install the Work package and verify the CLI first:
 
 ```sh
-bun add --dev --ignore-scripts @your-org/work
+bun add --dev --ignore-scripts @good-work/work
 bun run work provider install
 bun run work --help
 ```

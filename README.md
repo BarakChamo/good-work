@@ -14,24 +14,20 @@ dependency-free plugin adds trusted, repository-configured engineering hooks.
 
 ## Install
 
-Work requires [Bun](https://bun.sh/) 1.3.7 or newer.
-
-> The npm scope has not been selected yet, so the commands below retain the
-> `@your-org/work` placeholder until the first publication. For development,
-> clone this repository, run `bun install --frozen-lockfile`, and use
-> `bun run work`.
+Work requires [Bun](https://bun.sh/) 1.3.7 or newer. For development, clone this
+repository, run `bun install --frozen-lockfile`, and use `bun run work`.
 
 Install it globally when several repositories should share one CLI:
 
 ```sh
-bun add --global --ignore-scripts @your-org/work
+bun add --global --ignore-scripts @good-work/work
 work provider install
 ```
 
 Or pin it in one repository and expose a package script:
 
 ```sh
-bun add --dev --ignore-scripts @your-org/work
+bun add --dev --ignore-scripts @good-work/work
 ```
 
 Expose the binary from the consuming repository:

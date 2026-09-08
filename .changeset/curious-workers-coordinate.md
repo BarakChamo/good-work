@@ -1,5 +1,5 @@
 ---
-"@replace-with-org/work": minor
+"@good-work/work": minor
 ---
 
 Publish the first beta of the standalone Work CLI, agent skill, and optional
