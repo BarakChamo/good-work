@@ -608,7 +608,7 @@ describe('work engineering hooks', () => {
 		await writeCommittedConfig(
 			root,
 			config({
-				beforeStop: [
+				sessionStart: [
 					{
 						id: 'closed-stdin',
 						command: 'sh',
@@ -623,7 +623,10 @@ describe('work engineering hooks', () => {
 			cwd: root,
 			coordinationRoot: state,
 			runtime: 'codex',
-			nativeInput: JSON.stringify({ hook_event_name: 'Stop', stop_hook_active: false }),
+			nativeInput: JSON.stringify({
+				hook_event_name: 'SessionStart',
+				source: 'x'.repeat(200_000),
+			}),
 		})
 		expect(result).toMatchObject({
 			ok: true,
