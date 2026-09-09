@@ -45,6 +45,7 @@ const sbom = spawnSync(
 	[
 		resolve(root, 'node_modules/@cyclonedx/cyclonedx-npm/bin/cyclonedx-npm-cli.js'),
 		'--ignore-npm-errors',
+		'--output-reproducible',
 		'--omit',
 		'dev',
 		'--output-file',
