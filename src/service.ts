@@ -125,11 +125,12 @@ interface WorkReviewPacket {
 
 /** @description Current repository and provider view of independent review. */
 interface WorkReviewStatus {
-	readonly schemaVersion: 1
+	readonly schemaVersion: 2
 	readonly workId: string
-	readonly state: 'pending' | 'approved' | 'changes_requested' | 'stale'
+	readonly state: 'pending' | 'approved' | 'changes_requested' | 'stale' | 'incomplete'
 	readonly review?: LedgerReviewDecision
 	readonly receipt?: string
+	readonly missing?: 'provider_record' | 'repository_receipt'
 }
 
 /** @description Successful independent-review decision persisted across both state layers. */
@@ -729,6 +730,24 @@ const reviewDecisionFromReceipt = (receipt: ReviewReceipt): LedgerReviewDecision
 	decidedAt: receipt.decidedAt,
 })
 
+const reviewReceiptFromDecision = (input: {
+	readonly projectId: string
+	readonly workId: string
+	readonly definitionHash: string
+	readonly review: LedgerReviewDecision
+}): ReviewReceipt => ({
+	version: 1,
+	projectId: input.projectId,
+	workId: input.workId,
+	definitionHash: input.definitionHash,
+	disposition: input.review.disposition,
+	implementationActor: input.review.implementationActor,
+	subject: input.review.subject,
+	reviewer: input.review.reviewer,
+	report: input.review.report,
+	decidedAt: input.review.decidedAt,
+})
+
 const acceptedReview = async (input: {
 	readonly root: string
 	readonly projectId: string
@@ -1232,8 +1251,105 @@ export const createWorkContractService = (input: {
 		if (!receipt.ok) {
 			return receipt
 		}
-		if (receipt.value === undefined || current.value.item.review === undefined) {
-			return { ok: true, value: { schemaVersion: 1, workId, state: 'pending' } }
+		const reviewFreshness = async (candidate: ReviewReceipt) =>
+			current.value.item.status === 'closed' || historicalReviewRecovery
+				? validateHistoricalReviewReceipt({ root: input.root, receipt: candidate })
+				: validateReviewReceipt({ root: input.root, receipt: candidate })
+		const partialStatus = async (
+			partialReceipt: ReviewReceipt,
+			missing: 'provider_record' | 'repository_receipt',
+		): Promise<WorkResult<WorkReviewStatus>> => {
+			if (
+				partialReceipt.projectId !== input.graph.projectId ||
+				partialReceipt.definitionHash !== current.value.item.source.hash ||
+				partialReceipt.implementationActor !== current.value.item.activity?.actor
+			) {
+				return {
+					ok: false,
+					error: {
+						type: 'work_contract_error',
+						code: 'review_receipt_invalid',
+						message: 'The partial independent review does not match current work state.',
+					},
+				}
+			}
+			const freshness = await reviewFreshness(partialReceipt)
+			if (!freshness.ok && freshness.error.code !== 'review_target_stale') {
+				return freshness
+			}
+			return {
+				ok: true,
+				value: {
+					schemaVersion: 2,
+					workId,
+					state: freshness.ok ? 'incomplete' : 'stale',
+					review: reviewDecisionFromReceipt(partialReceipt),
+					...(missing === 'provider_record' ? { receipt: `docs/work/reviews/${workId}.yaml` } : {}),
+					missing,
+				},
+			}
+		}
+		const providerReview = current.value.item.review
+		if (receipt.value === undefined) {
+			if (providerReview === undefined) {
+				return { ok: true, value: { schemaVersion: 2, workId, state: 'pending' } }
+			}
+			return partialStatus(
+				reviewReceiptFromDecision({
+					projectId: input.graph.projectId,
+					workId,
+					definitionHash: current.value.item.source.hash,
+					review: providerReview,
+				}),
+				'repository_receipt',
+			)
+		}
+		if (providerReview === undefined) {
+			return partialStatus(receipt.value, 'provider_record')
+		}
+		if (
+			!sameReview(providerReview, {
+				disposition: receipt.value.disposition,
+				implementationActor: receipt.value.implementationActor,
+				subject: receipt.value.subject,
+				reviewer: receipt.value.reviewer,
+				report: receipt.value.report,
+				decidedAt: receipt.value.decidedAt,
+			})
+		) {
+			const providerReceipt = reviewReceiptFromDecision({
+				projectId: input.graph.projectId,
+				workId,
+				definitionHash: current.value.item.source.hash,
+				review: providerReview,
+			})
+			const providerStatus = await partialStatus(providerReceipt, 'repository_receipt')
+			const repositoryStatus = await partialStatus(receipt.value, 'provider_record')
+			if (!providerStatus.ok) {
+				return repositoryStatus.ok
+					? repositoryStatus
+					: providerStatus.error.code === 'review_receipt_invalid'
+						? repositoryStatus
+						: providerStatus
+			}
+			if (!repositoryStatus.ok) {
+				return providerStatus
+			}
+			if (
+				providerStatus.value.state === 'incomplete' &&
+				repositoryStatus.value.state !== 'incomplete'
+			) {
+				return providerStatus
+			}
+			if (
+				repositoryStatus.value.state === 'incomplete' &&
+				providerStatus.value.state !== 'incomplete'
+			) {
+				return repositoryStatus
+			}
+			return providerStatus.value.state === 'stale' && repositoryStatus.value.state === 'stale'
+				? providerStatus
+				: invalidLifecycleProjection()
 		}
 		if (
 			receipt.value.projectId !== input.graph.projectId ||
@@ -1249,29 +1365,15 @@ export const createWorkContractService = (input: {
 				},
 			}
 		}
-		if (
-			!sameReview(current.value.item.review, {
-				disposition: receipt.value.disposition,
-				implementationActor: receipt.value.implementationActor,
-				subject: receipt.value.subject,
-				reviewer: receipt.value.reviewer,
-				report: receipt.value.report,
-				decidedAt: receipt.value.decidedAt,
-			})
-		) {
-			return invalidLifecycleProjection()
-		}
-		const freshness = await (current.value.item.status === 'closed' || historicalReviewRecovery
-			? validateHistoricalReviewReceipt({ root: input.root, receipt: receipt.value })
-			: validateReviewReceipt({ root: input.root, receipt: receipt.value }))
+		const freshness = await reviewFreshness(receipt.value)
 		return freshness.ok
 			? {
 					ok: true,
 					value: {
-						schemaVersion: 1,
+						schemaVersion: 2,
 						workId,
 						state: receipt.value.disposition,
-						review: current.value.item.review,
+						review: providerReview,
 						receipt: `docs/work/reviews/${workId}.yaml`,
 					},
 				}
@@ -1279,10 +1381,10 @@ export const createWorkContractService = (input: {
 				? {
 						ok: true,
 						value: {
-							schemaVersion: 1,
+							schemaVersion: 2,
 							workId,
 							state: 'stale',
-							review: current.value.item.review,
+							review: providerReview,
 							receipt: `docs/work/reviews/${workId}.yaml`,
 						},
 					}
@@ -1396,7 +1498,13 @@ export const createWorkContractService = (input: {
 					? {}
 					: { definitionRevision: input.definitionRevision }),
 			})
-			return validated.ok
+			if (!validated.ok) {
+				return validated
+			}
+			const stillCurrent = await (historicalReviewRecovery
+				? validateHistoricalReviewReceipt({ root: input.root, receipt })
+				: validateReviewReceipt({ root: input.root, receipt }))
+			return stillCurrent.ok
 				? {
 						ok: true,
 						value: {
@@ -1412,27 +1520,20 @@ export const createWorkContractService = (input: {
 							review,
 						},
 					}
-				: validated
-		}
-		const workspace = await observeGitWorkspace({ root: input.root })
-		if (
-			!workspace.ok ||
-			!workspace.value.available ||
-			workspace.value.repositoryId === undefined ||
-			workspace.value.headSha !== request.reviewedHead ||
-			workspace.value.treeSha === undefined
-		) {
-			return {
-				ok: false,
-				error: {
-					type: 'work_contract_error',
-					code: 'review_target_stale',
-					message: 'The implementation changed while independent review was active.',
-				},
-			}
+				: stillCurrent
 		}
 		const existingReview = current.value.item.review
 		if (existingReview?.subject.headSha === request.reviewedHead) {
+			if (existingReview.implementationActor !== implementationActor) {
+				return {
+					ok: false,
+					error: {
+						type: 'work_contract_error',
+						code: 'review_receipt_invalid',
+						message: 'The surviving review belongs to a previous implementation owner.',
+					},
+				}
+			}
 			if (
 				existingReview.disposition !== request.disposition ||
 				existingReview.reviewer.actor !== request.reviewerActor ||
@@ -1466,7 +1567,14 @@ export const createWorkContractService = (input: {
 				return currentReceipt
 			}
 			const persisted = await persistReviewReceipt({ root: input.root, receipt })
-			return persisted.ok
+			if (!persisted.ok) {
+				return persisted
+			}
+			const stillCurrent = await validateReviewReceipt({
+				root: input.root,
+				receipt: persisted.value.receipt,
+			})
+			return stillCurrent.ok
 				? {
 						ok: true,
 						value: {
@@ -1482,7 +1590,24 @@ export const createWorkContractService = (input: {
 							review: existingReview,
 						},
 					}
-				: persisted
+				: stillCurrent
+		}
+		const workspace = await observeGitWorkspace({ root: input.root })
+		if (
+			!workspace.ok ||
+			!workspace.value.available ||
+			workspace.value.repositoryId === undefined ||
+			workspace.value.headSha !== request.reviewedHead ||
+			workspace.value.treeSha === undefined
+		) {
+			return {
+				ok: false,
+				error: {
+					type: 'work_contract_error',
+					code: 'review_target_stale',
+					message: 'The implementation changed while independent review was active.',
+				},
+			}
 		}
 		const prepared = await prepareReviewReceipt({
 			root: input.root,

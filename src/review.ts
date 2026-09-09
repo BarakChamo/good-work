@@ -432,6 +432,8 @@ export const persistReviewReceipt = async (input: {
 	if (
 		existing.value !== undefined &&
 		existing.value.subject.headSha === input.receipt.subject.headSha &&
+		existing.value.definitionHash === input.receipt.definitionHash &&
+		existing.value.implementationActor === input.receipt.implementationActor &&
 		serializeReceipt(existing.value) !== serialized
 	) {
 		return failure(

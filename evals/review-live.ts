@@ -31,6 +31,9 @@ interface TrialReport {
 	readonly implementationHead: string
 	readonly reviewDisposition: string
 	readonly finalStatus: string
+	readonly reviewerDecisionRecorded: true
+	readonly reviewerStatusVerified: true
+	readonly reviewerPreparedAgain: false
 	readonly telemetryCommands: readonly string[]
 	readonly runtimeWarnings: readonly string[]
 }
@@ -121,6 +124,31 @@ const permissionDenialCount = (runtime: Runtime, result: CommandResult): number 
 				}
 			}, 0)
 		: 0
+
+const agentShellCommands = (runtime: Runtime, result: CommandResult): readonly string[] =>
+	result.stdout.split('\n').flatMap((line) => {
+		try {
+			const value: unknown = JSON.parse(line)
+			if (!isRecord(value)) return []
+			if (runtime === 'codex') {
+				const item = isRecord(value.item) ? value.item : undefined
+				return value.type === 'item.started' &&
+					item?.type === 'command_execution' &&
+					typeof item.command === 'string'
+					? [item.command]
+					: []
+			}
+			const message = isRecord(value.message) ? value.message : undefined
+			const content = Array.isArray(message?.content) ? message.content : []
+			return content.flatMap((entry) => {
+				if (!isRecord(entry) || entry.type !== 'tool_use' || entry.name !== 'Bash') return []
+				const toolInput = isRecord(entry.input) ? entry.input : undefined
+				return typeof toolInput?.command === 'string' ? [toolInput.command] : []
+			})
+		} catch {
+			return []
+		}
+	})
 
 const field = (value: unknown, name: string): Record<string, unknown> => {
 	if (!isRecord(value)) {
@@ -340,8 +368,24 @@ const runTrial = async (input: {
 		environment,
 		rawDirectory: input.rawDirectory,
 		label: `${input.reviewer}-review`,
-		prompt: `Act only as the independent reviewer for ISSUE-1 at exact head ${implementationHead}. Follow the installed Work skill's reviewer protocol in this same worktree. Read the issue, diff, source, and test; run bun test directly with no pipe, redirect, temporary file, or chained shell command. Do not edit implementation or claim lifecycle work. Write docs/work/reviews/ISSUE-1.md. If there are no blocking findings, record approval with actor ${reviewerActor}, evaluator agent, and the exact prepared head. Otherwise request changes. Stop after the Work review decision and do not commit or finalize.`,
+		prompt: `Act only as the independent reviewer for ISSUE-1. Follow the installed Work skill's reviewer protocol in this same worktree. The complete prepared packet is ${JSON.stringify(prepared)}. Use that supplied packet; do not run review prepare again. Read the issue, diff, source, and test; run bun test directly with no pipe, redirect, temporary file, or chained shell command. Do not edit implementation or claim lifecycle work. Write docs/work/reviews/ISSUE-1.md. If there are no blocking findings, record approval with actor ${reviewerActor}, evaluator agent, and exact head ${implementationHead}. Otherwise request changes. Then run work review status and verify the durable disposition and receipt. Stop without committing or finalizing.`,
 	})
+	const reviewerCommands = agentShellCommands(input.reviewer, review)
+	const decisionIndex = reviewerCommands.findIndex((command) =>
+		/\bwork review (?:approve|request-changes) ISSUE-1\b/u.test(command),
+	)
+	const statusIndex = reviewerCommands.findIndex(
+		(command, index) => index > decisionIndex && /\bwork review status ISSUE-1\b/u.test(command),
+	)
+	if (
+		decisionIndex < 0 ||
+		statusIndex < 0 ||
+		reviewerCommands.some((command) => /\bwork review prepare ISSUE-1\b/u.test(command))
+	) {
+		throw new Error(
+			'Reviewer did not follow the supplied-packet, durable-decision, and status-verification protocol.',
+		)
+	}
 	const currentHead = git(input.root, environment, 'rev-parse', 'HEAD').stdout.trim()
 	const statusAfter = field(
 		work(input.root, environment, 'review', 'status', 'ISSUE-1').value,
@@ -405,6 +449,9 @@ const runTrial = async (input: {
 		implementationHead,
 		reviewDisposition: textField(statusAfter, 'state'),
 		finalStatus: textField(operation, 'status'),
+		reviewerDecisionRecorded: true,
+		reviewerStatusVerified: true,
+		reviewerPreparedAgain: false,
 		telemetryCommands,
 		runtimeWarnings: [
 			...(permissionDenialCount(input.implementer, implementation) === 0
