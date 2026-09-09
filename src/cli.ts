@@ -599,6 +599,13 @@ const evidenceKind = (value: string): EvidenceKind => {
 	throw new Error('Unsupported evidence kind.')
 }
 
+const reviewEvaluator = (value: string): 'agent' | 'human' => {
+	if (value === 'agent' || value === 'human') {
+		return value
+	}
+	throw new Error('Reviewer evaluator must be agent or human.')
+}
+
 const splitMapping = (value: string, label: string): readonly [string, string] => {
 	const index = value.indexOf('=')
 	if (index < 1 || index === value.length - 1) {
@@ -1065,6 +1072,114 @@ const executeWorkContractInvocation = async (
 			deliveryPolicy: manifest.policies.delivery ?? EVIDENCE_ONLY_DELIVERY_POLICY,
 			...(definitionRevision === undefined ? {} : { definitionRevision }),
 		})
+		if (parsed.command === 'review') {
+			const action = positional(parsed, 0, 'review action')
+			const workId = positional(parsed, 1, 'work ID')
+			if (action === 'status') {
+				return emit(await service.reviewStatus(workId))
+			}
+			if (action === 'prepare') {
+				const actor = requiredOption(parsed, 'actor')
+				const role = option(parsed, 'role')
+				const session = option(parsed, 'session')
+				const prepared = await service.prepareReview({
+					workId,
+					actor,
+					...(role === undefined ? {} : { role }),
+					...(session === undefined ? {} : { session }),
+				})
+				return prepared.ok
+					? emit({
+							ok: true,
+							value: {
+								...prepared.value,
+								nextActions: [
+									{
+										action: 'perform_review',
+										owner: 'review',
+										workId,
+										reviewedHead: prepared.value.subject.headSha,
+										report: prepared.value.suggestedReport,
+									},
+								],
+							},
+						})
+					: emit(prepared)
+			}
+			if (action === 'approve' || action === 'request-changes') {
+				const report = requiredOption(parsed, 'report')
+				const reviewerSession = option(parsed, 'session')
+				const decision = await service.recordReview({
+					workId,
+					reviewerActor: requiredOption(parsed, 'actor'),
+					...(reviewerSession === undefined ? {} : { reviewerSession }),
+					evaluator: reviewEvaluator(requiredOption(parsed, 'evaluator')),
+					disposition: action === 'approve' ? 'approved' : 'changes_requested',
+					reportReference: report,
+					reviewedHead: requiredOption(parsed, 'head'),
+				})
+				if (!decision.ok) {
+					return emit(decision)
+				}
+				const projection = await provider.publishRecoveryProjection({
+					expected: [{ workId, status: 'in_progress' }],
+				})
+				if (!projection.ok) {
+					return emit(projection)
+				}
+				const evidenceRequirements =
+					graph.items.find(({ id }) => id === workId)?.evidenceRequirements ?? []
+				const deliveryPolicy = manifest.policies.delivery ?? EVIDENCE_ONLY_DELIVERY_POLICY
+				const approvedAction: WorkNextAction = manifest.completionLedger
+					? {
+							action: 'finalize',
+							owner: 'work',
+							command: 'work finalize',
+							workId,
+							actor: decision.value.review.implementationActor,
+							evidenceRequirements,
+						}
+					: deliveryPolicy.profile === 'evidence-only'
+						? {
+								action: 'complete',
+								owner: 'work',
+								command: 'work complete',
+								workId,
+								actor: decision.value.review.implementationActor,
+								evidenceRequirements,
+								requiredGates: deliveryPolicy.requiredGates,
+							}
+						: {
+								action: 'submit',
+								owner: 'work',
+								command: 'work submit',
+								workId,
+								actor: decision.value.review.implementationActor,
+								evidenceRequirements,
+							}
+				const nextActions: WorkNextAction[] = [
+					{
+						action: 'commit_review_receipt',
+						owner: 'operator',
+						paths: [report, decision.value.reviewReceipt],
+					},
+					...(decision.value.disposition === 'approved'
+						? [approvedAction]
+						: [
+								{ action: 'resume_rework' as const, owner: 'operator' as const, workId },
+								{
+									action: 'prepare_review' as const,
+									owner: 'work' as const,
+									command: 'work review prepare' as const,
+									workId,
+									actor: decision.value.review.implementationActor,
+								},
+							]),
+				]
+				return emit({ ok: true, value: { ...decision.value, nextActions } })
+			}
+			throw new Error(`Unsupported review action: ${action}.`)
+		}
 		if (parsed.command === 'finalize') {
 			if (!manifest.completionLedger) {
 				return emit({
@@ -1167,6 +1282,29 @@ const executeWorkContractInvocation = async (
 				return emit(localRecords)
 			}
 			const existing = localRecords.value.find(({ workId: candidate }) => candidate === workId)
+			let evidence = parseEvidenceOptions(parsed)
+			if (artifact.execution === 'task' && artifact.evidenceRequirements.includes('review')) {
+				const review = await service.reviewStatus(workId)
+				if (!review.ok) {
+					return emit(review)
+				}
+				if (review.value.state !== 'approved' || review.value.receipt === undefined) {
+					return emit({
+						ok: false,
+						error: {
+							type: 'work_contract_error',
+							code: review.value.state === 'stale' ? 'review_target_stale' : 'review_required',
+							message:
+								review.value.state === 'stale'
+									? 'The independent review is stale; request a fresh review.'
+									: 'Independent approval is required before finalizing work.',
+						},
+					})
+				}
+				if (!evidence.some(({ kind }) => kind === 'review')) {
+					evidence = [...evidence, { kind: 'review', reference: review.value.receipt }]
+				}
+			}
 			const record = await buildCompletionRecord({
 				root: parsed.root,
 				workId,
@@ -1178,7 +1316,7 @@ const executeWorkContractInvocation = async (
 					: {}),
 				...(existing?.completedAt === undefined ? {} : { completedAt: existing.completedAt }),
 				requiredEvidence: artifact.evidenceRequirements,
-				evidence: parseEvidenceOptions(parsed),
+				evidence,
 			})
 			if (!record.ok) {
 				return emit(record)
@@ -1301,6 +1439,13 @@ const executeWorkContractInvocation = async (
 			}
 			const artifact = graph.items.find((entry) => entry.id === id)
 			const ledger = items.find((entry) => entry.workId === id)
+			const review =
+				artifact?.execution === 'task' && artifact.evidenceRequirements.includes('review')
+					? await service.reviewStatus(id)
+					: undefined
+			if (review !== undefined && !review.ok) {
+				return emit(review)
+			}
 			return artifact === undefined
 				? emit({
 						ok: false,
@@ -1315,6 +1460,7 @@ const executeWorkContractInvocation = async (
 						value: {
 							definition: artifact,
 							operation: ledger,
+							...(review?.ok === true ? { review: review.value } : {}),
 							...(inspected.value.aggregate === undefined
 								? {}
 								: { aggregate: inspected.value.aggregate }),
@@ -1390,7 +1536,15 @@ const executeWorkContractInvocation = async (
 			const session = option(parsed, 'session')
 			const deliveryPolicy = manifest.policies.delivery ?? EVIDENCE_ONLY_DELIVERY_POLICY
 			let terminalAction: WorkNextAction
-			if (manifest.completionLedger) {
+			if (packet.value.evidenceRequirements.includes('review')) {
+				terminalAction = {
+					action: 'prepare_review',
+					owner: 'work',
+					command: 'work review prepare',
+					workId: packet.value.workId,
+					actor,
+				}
+			} else if (manifest.completionLedger) {
 				terminalAction = {
 					action: 'finalize',
 					owner: 'work',
@@ -1505,6 +1659,8 @@ const executeWorkContractInvocation = async (
 					{ command: 'claim <id> --actor <name>', mutates: true },
 					{ command: 'show <id>', mutates: false },
 					{ command: 'finalize <id> --actor <name> --evidence <kind=path>', mutates: true },
+					{ command: 'review status <id>', mutates: false },
+					{ command: 'review prepare|approve|request-changes <id>', mutates: true },
 					{ command: 'submit <id> --actor <name>', mutates: true },
 					{ command: 'integration status', mutates: false },
 					{ command: 'reconcile <id> --actor <name>', mutates: true },

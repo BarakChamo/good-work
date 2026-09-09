@@ -38,6 +38,8 @@ Ledger-enabled repositories finish through:
 
 ```text
 implementation and checks are committed
+→ work review prepare binds a distinct reviewer to the exact tree (when required)
+→ review report and approval receipt are committed
 → work finalize writes one completion record
 → completion record is committed
 → work submit records the clean candidate
@@ -47,6 +49,22 @@ implementation and checks are committed
 
 `work complete` remains only for manifests without the repository completion
 ledger. Follow returned `nextActions` instead of assuming a lifecycle.
+
+## Independent review
+
+| Command                                | Use                                                         |
+| -------------------------------------- | ----------------------------------------------------------- |
+| `work review status <id>`              | Inspect the current decision and exact-tree freshness.      |
+| `work review prepare <id> --actor ...` | Prepare a clean committed tree for a distinct reviewer.     |
+| `work review approve <id> ...`         | Record approval and write the repository review receipt.    |
+| `work review request-changes <id> ...` | Record findings without releasing or reopening the item.    |
+
+`approve` and `request-changes` require a distinct reviewer actor,
+`--evaluator agent|human`, the exact `--head` returned by `prepare`, and the
+canonical report path `docs/work/reviews/<ID>.md`. Work does not launch the
+reviewer. A source change makes the prior decision stale and requires a new
+prepare/decision cycle. `finalize` refuses review-required work until the current
+tree is approved.
 
 ## Coordination and diagnostics
 
@@ -77,5 +95,5 @@ that do not already carry `--session`; `CODEX_SESSION_ID` is a final Codex
 fallback. `WORK_SESSION_ID` has highest precedence and an explicit command
 session has priority over every environment value.
 
-The CLI never runs a check, launches an agent, changes Git, opens a pull request,
-merges, creates isolation, or removes a worktree.
+The CLI never runs a check, launches an agent or reviewer, changes Git, opens a
+pull request, merges, creates isolation, or removes a worktree.

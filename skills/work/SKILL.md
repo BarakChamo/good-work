@@ -1,6 +1,6 @@
 ---
 name: work
-description: Inspect, start, submit, resume, hand off, or policy-complete repository-defined work through the validated work CLI. Use when a user invokes /work or $work, names an issue ID or issue file, asks what to work on next, or asks to continue tracked work; do not use it to invent work, bypass admission, or launch another agent process.
+description: Inspect, start, independently review, submit, resume, hand off, or policy-complete repository-defined work through the validated work CLI. Use when a user invokes /work or $work, names an issue ID or issue file, asks what to work on next, or asks to continue tracked work; do not use it to invent work, bypass admission, or launch another agent process.
 ---
 
 # Work
@@ -47,7 +47,7 @@ bun run work overview --json
 
 Present health, active work, the recommended ready item, other ready items, and
 these actions: `next`, `show <id>`, `start <id-or-path>`, `resume`, `status`,
-`handoff`, `finalize`, `submit`, `reconcile`, `integration`, `feedback`,
+`handoff`, `finalize`, `submit`, `reconcile`, `integration`, `review`, `feedback`,
 `telemetry`, `hooks`, and `help`. Keep the index compact and derive the work
 summary from the command result, never from this file.
 
@@ -93,7 +93,7 @@ After start,
 briefly report the canonical work ID, source, actor, role/session when present,
 objective, acceptance, validation expectations, and first action, then perform
 the requested work. The work layer does not spawn agents, create worktrees or
-containers, run checks, review, open PRs, or land changes.
+containers, run checks, launch reviewers, open PRs, or land changes.
 
 ## Parallel work
 
@@ -129,6 +129,18 @@ direct children.
 
 - `handoff`: persist a bounded repository-relative summary with remaining work
   and durable references, not a transcript.
+- `review`: when `review` is required evidence, commit the implementation and
+  evidence first, then run `work review prepare <id> --actor <implementation-actor>
+  --json`. Keep the implementation session active but stop editing. Use the
+  current runtime's native delegation mechanism to run one distinct reviewer in
+  the same worktree, sequentially rather than concurrently. Give that reviewer
+  the returned packet and the reviewer protocol below; Work never launches it.
+  A human reviewer may follow the same protocol. The reviewer writes exactly
+  `docs/work/reviews/<ID>.md` and records either `review approve` or
+  `review request-changes` against the exact `subject.headSha`. Commit the report
+  and generated YAML receipt. Requested changes leave ownership and lifecycle
+  state intact: the implementer makes and commits fixes, prepares a new exact
+  revision, and requests a fresh review. Approval is required before `finalize`.
 - `finalize`: after acceptance is satisfied, checks pass, and implementation
   changes plus evidence are committed, run `work finalize <id> --actor <actor>
 --evidence <kind=path> --json`. It validates ownership and evidence, requires a
@@ -199,3 +211,23 @@ Never steal a claim, infer that stale activity grants ownership, silently repair
 ledger drift, start dependency-incomplete work, or treat an agent's completion
 statement as evidence. Ask for the one required operator decision when a
 structured conflict or authorization boundary cannot be resolved safely.
+
+## Independent reviewer protocol
+
+When the parent runtime delegates review, the reviewer is an evaluator, not a
+second implementer:
+
+1. Work in the already claimed worktree and verify `HEAD` equals the packet's
+   `subject.headSha`. Do not claim, resume, release, reopen, finalize, submit, or
+   reconcile the item.
+2. Read the issue source, acceptance criteria, candidate diff, tests, and
+   relevant repository instructions. Run proportionate read-only checks; do not
+   modify implementation files.
+3. Write a concise findings-first report to the packet's `suggestedReport`.
+   Include exact actionable findings, severity, evidence, and any residual risk.
+4. If there are no blocking findings, run `work review approve <id> --actor
+   <distinct-reviewer> --evaluator agent --report <report> --head <packet-head>
+   --json`. Otherwise run the identical `review request-changes` form.
+5. Return the structured result to the parent. Do not commit or fix source; the
+   parent follows the returned actions. The reviewer identity must differ from
+   the implementation actor, although the runtime session may be shared.

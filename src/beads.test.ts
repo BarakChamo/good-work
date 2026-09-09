@@ -27,6 +27,7 @@ import type {
 	LedgerDefinitionExpectation,
 	LedgerDefinitionInput,
 	LedgerHandoffInput,
+	LedgerReviewInput,
 	LedgerTransitionInput,
 } from './provider'
 
@@ -102,7 +103,7 @@ type AdapterTestInput<T extends { readonly expectedDefinition: LedgerDefinitionE
 type RealProvider = ReturnType<typeof createRealBeadsProvider>
 type TestProvider = Omit<
 	RealProvider,
-	'claim' | 'recordActivity' | 'recordHandoff' | 'transition'
+	'claim' | 'recordActivity' | 'recordHandoff' | 'recordReview' | 'transition'
 > & {
 	readonly claim: (input: AdapterTestInput<LedgerClaimInput>) => ReturnType<RealProvider['claim']>
 	readonly recordActivity: (
@@ -113,6 +114,9 @@ type TestProvider = Omit<
 	readonly recordHandoff: (
 		input: AdapterTestInput<LedgerHandoffInput>,
 	) => ReturnType<RealProvider['recordHandoff']>
+	readonly recordReview: (
+		input: WithDefaultDefinitionClosure<WithDefaultDefinition<LedgerReviewInput>>,
+	) => ReturnType<RealProvider['recordReview']>
 	readonly transition: (
 		input: AdapterTestInput<LedgerTransitionInput>,
 	) => ReturnType<RealProvider['transition']>
@@ -222,6 +226,14 @@ const createBeadsProvider = (
 						expectedDefinitionClosure: definitionClosureFor(value),
 					})
 			}
+			if (property === 'recordReview') {
+				return (value: WithDefaultDefinitionClosure<WithDefaultDefinition<LedgerReviewInput>>) =>
+					target.recordReview({
+						...value,
+						expectedDefinition: definitionFor(value),
+						expectedDefinitionClosure: definitionClosureFor(value),
+					})
+			}
 			if (property === 'transition') {
 				return (value: AdapterTestInput<LedgerTransitionInput>) => {
 					const { dependencyRequirements: _, ...request } = value
@@ -302,6 +314,63 @@ afterEach(async () => {
 })
 
 describe('beads adapter boundary', () => {
+	it('persists and projects an independent review decision without changing ownership', async () => {
+		const log = join(root, 'commands.log')
+		const activity = {
+			actor: 'implementer',
+			started_at: '2026-09-09T00:00:00.000Z',
+			touched_at: '2026-09-09T00:00:00.000Z',
+		}
+		const current = {
+			...record('wc-1'),
+			status: 'in_progress',
+			assignee: 'implementer',
+			metadata: {
+				...record('wc-1').metadata,
+				work_contract: { ...record('wc-1').metadata.work_contract, activity },
+			},
+		}
+		const binary = await writeFakeBinary(`
+import { appendFileSync, readFileSync } from 'node:fs'
+const command = process.argv[2]
+appendFileSync(${JSON.stringify(log)}, process.argv.slice(2).join('\\t') + '\\n')
+if (command === 'list') console.log(${JSON.stringify(JSON.stringify([current]))})
+else if (command === 'update') {
+  const value = process.argv[process.argv.indexOf('--metadata') + 1]
+  const metadata = JSON.parse(value.startsWith('@') ? readFileSync(value.slice(1), 'utf8') : value)
+  appendFileSync(${JSON.stringify(log)}, JSON.stringify(metadata) + '\\n')
+  console.log(JSON.stringify({ ...${JSON.stringify(current)}, metadata, updated_at: '2026-09-09T00:01:00.000Z' }))
+} else process.exit(9)
+`)
+		const provider = createBeadsProvider({ root, projectId: 'example', binary })
+		const review = {
+			disposition: 'approved' as const,
+			implementationActor: 'implementer',
+			subject: {
+				repositoryId: '1'.repeat(64),
+				headSha: '2'.repeat(40),
+				treeSha: '3'.repeat(40),
+			},
+			reviewer: { actor: 'reviewer', session: 'review-session', evaluator: 'agent' as const },
+			report: { reference: 'docs/work/reviews/ISSUE-1.md', digest: '4'.repeat(64) },
+			decidedAt: '2026-09-09T00:01:00.000Z',
+		}
+
+		const result = await provider.recordReview({ workId: 'ISSUE-1', review })
+		if (!result.ok) {
+			throw new Error(JSON.stringify(result.error))
+		}
+		expect(result).toMatchObject({
+			ok: true,
+			value: {
+				status: 'in_progress',
+				assignee: 'implementer',
+				review: { disposition: 'approved', reviewer: { actor: 'reviewer' } },
+			},
+		})
+		await expect(readFile(log, 'utf8')).resolves.toContain('"review":{"disposition":"approved"')
+	})
+
 	it('keeps the maximum admitted raw project below the child-output ceiling', () => {
 		expect(
 			BEADS_PROVIDER_LIMITS.items * (BEADS_PROVIDER_LIMITS.rawRecordReserveBytes + 1) + 2,

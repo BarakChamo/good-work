@@ -42,6 +42,12 @@ Hook telemetry records only event, configured entry ID, duration, outcome,
 output mode, and skip reason. Hook command output is returned according to the
 repository's trusted `work.json` policy and is not retained by Work.
 
+Review telemetry records only the sanitized command route, outcome, duration,
+and existing keyed correlations. Review reports, findings, source paths, exact
+heads, and reviewer input are never copied into telemetry. The report and YAML
+receipt are deliberately committed project artifacts; teams should apply their
+normal repository privacy rules to them.
+
 Removing the exact project directory under the configured state home deletes
 local operational history and active coordination. It does not remove committed
 work definitions or completion records.

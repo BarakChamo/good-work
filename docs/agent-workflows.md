@@ -20,13 +20,46 @@ For ledger-enabled delivery, the agent:
 
 1. satisfies acceptance and runs the repository-owned checks;
 2. commits implementation and evidence;
-3. runs `work finalize` and commits the one completion record;
-4. reruns applicable checks and runs `work submit`;
-5. uses the repository's external review/CI/merge flow;
-6. returns to the claimed worktree and runs `work reconcile`;
-7. cleans up only after the terminal action says cleanup is eligible.
+3. when configured, runs `work review prepare` and pauses source edits while a
+   distinct reviewer operates sequentially in the same worktree;
+4. commits the review report and receipt after approval, or fixes requested
+   changes, commits them, and repeats review without reopening the issue;
+5. runs `work finalize` and commits the one completion record;
+6. reruns applicable checks and runs `work submit`;
+7. uses the repository's external CI/merge flow;
+8. returns to the claimed worktree and runs `work reconcile`;
+9. cleans up only after the terminal action says cleanup is eligible.
 
 An agent statement that work is done is not completion evidence.
+
+## Independent review
+
+Enable the gate with `terminalEvidence: [artifact, review]` (or the project's
+chosen evidence kinds). The implementation owner calls:
+
+```sh
+work review prepare ISSUE-123 --actor <implementation-actor> --json
+```
+
+The surrounding runtime or human operator creates the reviewer. Work only
+returns the exact tree, issue source, acceptance criteria, report path, and
+semantic next action. A reviewer must use a different actor, may share the same
+runtime session, and must not modify source. It writes
+`docs/work/reviews/ISSUE-123.md`, then records one decision:
+
+```sh
+work review approve ISSUE-123 --actor <reviewer> --evaluator agent \
+  --report docs/work/reviews/ISSUE-123.md --head <prepared-head> --json
+work review request-changes ISSUE-123 --actor <reviewer> --evaluator agent \
+  --report docs/work/reviews/ISSUE-123.md --head <prepared-head> --json
+```
+
+The first decision for an exact head wins. Self-review and conflicting decisions
+fail without replacing the receipt. Any later source change makes approval stale;
+the implementer commits the fix and prepares a fresh review. Once completion is
+recorded, the report digest and receipt are historical evidence: unrelated later
+commits, squash integration, a fresh clone, or deleted local Beads state do not
+invalidate them.
 
 ## Handoff and recovery
 

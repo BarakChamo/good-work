@@ -30,6 +30,31 @@ describe('stricli work-contract program', () => {
 		[['hooks', 'status'], 'hooks', ['status']],
 		[['hooks', 'dispatch', '--runtime', 'claude'], 'hooks', ['dispatch']],
 		[['provider', 'install'], 'provider', ['install']],
+		[['review', 'status', 'ISSUE-1'], 'review', ['status', 'ISSUE-1']],
+		[
+			['review', 'prepare', 'ISSUE-1', '--actor', 'implementer', '--session', 'parent'],
+			'review',
+			['prepare', 'ISSUE-1'],
+		],
+		[
+			[
+				'review',
+				'approve',
+				'ISSUE-1',
+				'--actor',
+				'reviewer',
+				'--session',
+				'review-session',
+				'--evaluator',
+				'agent',
+				'--report',
+				'docs/work/reviews/ISSUE-1.md',
+				'--head',
+				'1'.repeat(40),
+			],
+			'review',
+			['approve', 'ISSUE-1'],
+		],
 	] as const)('routes the agent-native %s command', async (args, command, positionals) => {
 		expect.hasAssertions()
 		const invocations: WorkContractInvocation[] = []
@@ -116,6 +141,23 @@ describe('stricli work-contract program', () => {
 		expect(stdout.join('\n')).toContain('reconcile')
 		expect(stdout.join('\n')).toContain('export')
 		expect(stdout.join('\n')).toContain('hooks')
+	})
+
+	it('describes review session as reviewer audit identity, not an owner assertion', async () => {
+		expect.hasAssertions()
+		const stdout: string[] = []
+
+		await expect(
+			runWorkContractProgram({
+				args: ['review', 'approve', '--help'],
+				io: { stdout: (value): void => void stdout.push(value), stderr: (): void => undefined },
+				execute: async (): Promise<number> => 0,
+			}),
+		).resolves.toBe(0)
+
+		const help = stdout.join('\n')
+		expect(help).toContain('Reviewer session identity for audit')
+		expect(help).not.toContain('Assert the active claim session')
 	})
 
 	it('normalizes global flags around routes and preserves repeatable command flags', async () => {

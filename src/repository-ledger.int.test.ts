@@ -71,7 +71,7 @@ test('finalizes in a worktree and reconstructs closed work after external state 
 			'  - kind: issue',
 			'    include: docs/issues/*.md',
 			'policies:',
-			'  terminalEvidence: [artifact]',
+			'  terminalEvidence: [artifact, review]',
 			'  delivery:',
 			'    profile: local-direct',
 			'    isolation: worktree',
@@ -82,7 +82,7 @@ test('finalizes in a worktree and reconstructs closed work after external state 
 	)
 	await writeFile(
 		join(root, 'docs', 'issues', 'ISSUE-1-work.md'),
-		'---\nid: ISSUE-1\nroles: [implementer]\nevidence: [artifact]\n---\n\n# ISSUE-1 Work\n',
+		'---\nid: ISSUE-1\nroles: [implementer]\nevidence: [artifact, review]\n---\n\n# ISSUE-1 Work\n',
 	)
 	await git(root, 'init', '-b', 'main')
 	await git(root, 'config', 'user.name', 'Work Test')
@@ -109,6 +109,60 @@ test('finalizes in a worktree and reconstructs closed work after external state 
 	await writeFile(join(linked, 'reports', 'result.md'), '# Accepted\n')
 	await git(linked, 'add', 'reports/result.md')
 	await git(linked, 'commit', '-m', 'implement work')
+	const prematureFinalize = await invoke(
+		linked,
+		'finalize',
+		'ISSUE-1',
+		'--actor',
+		'worker',
+		'--role',
+		'implementer',
+		'--session',
+		's1',
+		'--evidence',
+		'artifact=reports/result.md',
+	)
+	expect(prematureFinalize.status).toBe(1)
+	expect(prematureFinalize.stderr.join('\n')).toContain('review_required')
+	const reviewPrepared = await invoke(
+		linked,
+		'review',
+		'prepare',
+		'ISSUE-1',
+		'--actor',
+		'worker',
+		'--role',
+		'implementer',
+		'--session',
+		's1',
+	)
+	expect(reviewPrepared.status, reviewPrepared.stderr.join('\n')).toBe(0)
+	const reviewedHead = /"headSha":"([a-f0-9]{40,64})"/u.exec(reviewPrepared.stdout.join('\n'))?.[1]
+	expect(reviewedHead).toBeDefined()
+	await mkdir(join(linked, 'docs', 'work', 'reviews'), { recursive: true })
+	await writeFile(
+		join(linked, 'docs/work/reviews/ISSUE-1.md'),
+		'# Independent review\n\nAccepted.\n',
+	)
+	const approved = await invoke(
+		linked,
+		'review',
+		'approve',
+		'ISSUE-1',
+		'--actor',
+		'reviewer',
+		'--session',
+		'review-session',
+		'--evaluator',
+		'agent',
+		'--report',
+		'docs/work/reviews/ISSUE-1.md',
+		'--head',
+		reviewedHead ?? '',
+	)
+	expect(approved.status, approved.stderr.join('\n')).toBe(0)
+	await git(linked, 'add', 'docs/work/reviews')
+	await git(linked, 'commit', '-m', 'record independent review')
 
 	const finalized = await invoke(
 		linked,
@@ -127,6 +181,9 @@ test('finalizes in a worktree and reconstructs closed work after external state 
 	await expect(readFile(join(linked, 'docs/work/ledger/ISSUE-1.yaml'), 'utf8')).resolves.toContain(
 		'work_id: ISSUE-1',
 	)
+	await expect(readFile(join(linked, 'docs/work/ledger/ISSUE-1.yaml'), 'utf8')).resolves.toContain(
+		'kind: review',
+	)
 	await git(linked, 'add', 'docs/work/ledger/ISSUE-1.yaml')
 	await git(linked, 'commit', '-m', 'record completion')
 	const submitted = await invoke(
@@ -141,6 +198,8 @@ test('finalizes in a worktree and reconstructs closed work after external state 
 		's1',
 	)
 	expect(submitted.status, submitted.stderr.join('\n')).toBe(0)
+	const submittedItem = await invoke(linked, 'show', 'ISSUE-1')
+	expect(submittedItem.stdout.join('\n')).toContain('"disposition":"approved"')
 
 	const acquired = await invoke(root, 'integration', 'acquire', '--actor', 'integrator')
 	expect(acquired.status).toBe(0)
@@ -173,6 +232,9 @@ test('finalizes in a worktree and reconstructs closed work after external state 
 	expect(released.status).toBe(0)
 	const closed = await invoke(root, 'show', 'ISSUE-1')
 	expect(closed.stdout.join('\n')).toContain('"status":"closed"')
+	await writeFile(join(root, 'unrelated.txt'), 'later unrelated work\n')
+	await git(root, 'add', 'unrelated.txt')
+	await git(root, 'commit', '-m', 'land unrelated work after reviewed completion')
 
 	await rm(stateHome, { recursive: true, force: true })
 	await mkdir(stateHome)
@@ -318,6 +380,90 @@ test('reconciles only the selected landed record from a stale parallel worktree'
 	expect(reconciled.status, reconciled.stderr.join('\n')).toBe(0)
 	expect(firstShown.stdout.join('\n')).toContain('"status":"closed"')
 	expect(secondShown.stdout.join('\n')).toContain('"status":"in_progress"')
+}, 120_000)
+
+test('serializes concurrent review decisions without overwriting the winning receipt', async () => {
+	expect.hasAssertions()
+	const root = await mkdtemp(join(tmpdir(), 'work-review-race-'))
+	const stateHome = await mkdtemp(join(tmpdir(), 'work-review-race-state-'))
+	roots.push(root, stateHome)
+	processEnvironment.WORK_CONTRACT_STATE_HOME = stateHome
+	await mkdir(join(root, 'docs', 'issues'), { recursive: true })
+	await writeFile(
+		join(root, 'work.yaml'),
+		[
+			'version: 1',
+			'project: { id: review-race }',
+			'completionLedger: true',
+			'sources:',
+			'  - kind: issue',
+			'    include: docs/issues/*.md',
+			'policies:',
+			'  terminalEvidence: [review]',
+			'',
+		].join('\n'),
+	)
+	await writeFile(
+		join(root, 'docs/issues/ISSUE-1-review.md'),
+		'---\nid: ISSUE-1\nevidence: [review]\n---\n\n# ISSUE-1 Review race\n',
+	)
+	await git(root, 'init', '-b', 'main')
+	await git(root, 'config', 'user.name', 'Work Test')
+	await git(root, 'config', 'user.email', 'work@example.test')
+	await git(root, 'add', '.')
+	await git(root, 'commit', '-m', 'review definitions')
+	expect((await invoke(root, 'sync', '--apply')).status).toBe(0)
+	expect((await invoke(root, 'start', 'ISSUE-1', '--actor', 'implementer')).status).toBe(0)
+	await writeFile(join(root, 'implementation.ts'), 'export const value = 1\n')
+	await git(root, 'add', 'implementation.ts')
+	await git(root, 'commit', '-m', 'implementation')
+	const prepared = await invoke(root, 'review', 'prepare', 'ISSUE-1', '--actor', 'implementer')
+	const head = /"headSha":"([a-f0-9]{40,64})"/u.exec(prepared.stdout.join('\n'))?.[1]
+	expect(prepared.status).toBe(0)
+	expect(head).toBeDefined()
+	await mkdir(join(root, 'docs/work/reviews'), { recursive: true })
+	await writeFile(join(root, 'docs/work/reviews/ISSUE-1.md'), '# Concurrent review\n')
+	const decisions = await Promise.all([
+		invoke(
+			root,
+			'review',
+			'approve',
+			'ISSUE-1',
+			'--actor',
+			'reviewer-a',
+			'--evaluator',
+			'agent',
+			'--report',
+			'docs/work/reviews/ISSUE-1.md',
+			'--head',
+			head ?? '',
+		),
+		invoke(
+			root,
+			'review',
+			'request-changes',
+			'ISSUE-1',
+			'--actor',
+			'reviewer-b',
+			'--evaluator',
+			'human',
+			'--report',
+			'docs/work/reviews/ISSUE-1.md',
+			'--head',
+			head ?? '',
+		),
+	])
+	expect(
+		decisions.map(({ status }) => status).toSorted((left, right) => left - right),
+	).toStrictEqual([0, 1])
+	const shown = await invoke(root, 'show', 'ISSUE-1')
+	const receipt = await readFile(join(root, 'docs/work/reviews/ISSUE-1.yaml'), 'utf8')
+	const winningActor = /"reviewer":\{"actor":"([^"]+)"/u.exec(shown.stdout.join('\n'))?.[1]
+	expect(['reviewer-a', 'reviewer-b']).toContain(winningActor)
+	expect(receipt).toContain(`actor: ${winningActor ?? 'missing'}`)
+	expect(receipt).not.toContain(
+		`actor: ${winningActor === 'reviewer-a' ? 'reviewer-b' : 'reviewer-a'}`,
+	)
 }, 120_000)
 
 test('rejects disposable completion that has no repository completion record', async () => {
