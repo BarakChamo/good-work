@@ -2,10 +2,10 @@ name: Security
 
 on:
   pull_request:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
   push:
     branches: [main]
-  schedule:
-    - cron: "23 4 * * 2"
 
 permissions:
   contents: read
@@ -13,7 +13,12 @@ permissions:
 jobs:
   dependency-review:
     name: Dependency review
-    if: github.event_name == 'pull_request'
+    if: >-
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'pull_request_target' &&
+      github.actor == 'github-actions[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'changeset-release/main')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -23,6 +28,11 @@ jobs:
 
   codeql:
     name: CodeQL
+    if: >-
+      github.event_name != 'pull_request_target' ||
+      (github.actor == 'github-actions[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'changeset-release/main')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -30,8 +40,9 @@ jobs:
       packages: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
       - uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
         with:
           languages: javascript-typescript
       - uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
-
