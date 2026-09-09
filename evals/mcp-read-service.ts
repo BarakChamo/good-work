@@ -139,6 +139,8 @@ export const createMcpReadService = (options: McpReadServiceOptions): McpReadSer
 						command: 'finalize <id> --actor <name> --evidence <kind=path>',
 						mutates: true,
 					},
+					{ command: 'review status <id>', mutates: false },
+					{ command: 'review prepare|approve|request-changes <id>', mutates: true },
 					{ command: 'submit <id> --actor <name>', mutates: true },
 					{ command: 'integration status', mutates: false },
 					{ command: 'reconcile <id> --actor <name>', mutates: true },

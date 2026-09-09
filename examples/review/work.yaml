@@ -1,0 +1,15 @@
+version: 1
+project:
+  id: reviewed-project
+  uid: 123e4567-e89b-42d3-a456-426614174001
+completionLedger: true
+sources:
+  - kind: issue
+    include: docs/work/issues/*.md
+policies:
+  terminalEvidence: [test, review]
+  delivery:
+    profile: local-direct
+    isolation: worktree
+    targetRef: refs/heads/main
+    requiredGates: [validation, review, landing]

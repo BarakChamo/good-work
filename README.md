@@ -2,14 +2,14 @@
 
 Work is a local-first work-management layer for humans and coding agents. It
 keeps initiatives, PRDs, issues, policies, and completed-work records in Git,
-while Beads supplies disposable concurrent claims, handoffs, submissions,
+while Beads supplies disposable concurrent claims, handoffs, review decisions, submissions,
 telemetry, and feedback outside the repository.
 
 The CLI is deterministic and scriptable. The included agent skill turns the
 same commands into `$work` for Codex and `/work` for Claude Code. An optional
 dependency-free plugin adds trusted, repository-configured engineering hooks.
 
-> Work 0.1 is beta software. Its file and CLI contracts are tested for real
+> Work is beta software. Its file and CLI contracts are tested for real
 > project use, but compatibility may still change before 1.0.
 
 ## Install
@@ -87,9 +87,11 @@ Starting is always explicit:
 bun run work start ISSUE-123 --actor codex-issue-123-a1b2c3 --json
 ```
 
-The returned `nextActions` guide the caller. Work validates repository policy
-but does not create worktrees, run tests, commit, open pull requests, merge, or
-clean up branches.
+The returned `nextActions` guide the caller. Review-required work returns a
+`prepare_review` action: the surrounding runtime runs a distinct reviewer in the
+same worktree, and Work records the exact-tree result without launching that
+agent. Work validates repository policy but does not create worktrees, run
+tests, commit, open pull requests, merge, or clean up branches.
 
 ## Agent sessions
 
@@ -143,7 +145,7 @@ evidence. See [Engineering hooks](docs/hooks.md).
 ## Authority and storage
 
 ```text
-work.yaml + Markdown + docs/work/ledger/*.yaml
+work.yaml + Markdown + docs/work/{ledger,reviews}/*
                  │
                  ├── compile/recover ──> ~/.work/<project-uid>/<checkout>/
                  │                         claims, handoffs, telemetry, feedback
@@ -153,6 +155,7 @@ work.yaml + Markdown + docs/work/ledger/*.yaml
 - `work.yaml` selects repository-owned work definitions and policy.
 - Markdown owns initiatives, PRDs, issues, and tasks.
 - `docs/work/ledger/<ID>.yaml` records durable completion evidence.
+- `docs/work/reviews/<ID>.md` and `.yaml` record durable independent review.
 - `work.json` owns optional trusted engineering hooks.
 - `~/.work` contains disposable per-checkout coordination. Deleting it loses
   active local sessions, not committed definitions or completion history.
@@ -168,10 +171,11 @@ and [Privacy](docs/privacy.md) for the complete contract.
 | `work init`                              | Create `work.yaml` and initialize local state.                    |
 | `work provider install`                  | Download and verify the pinned native Beads binary.               |
 | `work doctor`                            | Check manifest, provider, state, plugin, and hook health.         |
-| `work sync --check                       | --plan                                                            | --apply` | Compare or synchronize committed definitions. |
+| `work sync --check` / `--plan` / `--apply` | Compare or synchronize committed definitions.                  |
 | `work prepare <ref>`                     | Validate an ID/path and produce bounded context without claiming. |
 | `work start <ref> --actor <actor>`       | Prepare, admit, and atomically claim work.                        |
 | `work finalize` / `submit` / `reconcile` | Record evidence, submit a candidate, and close after landing.     |
+| `work review`                            | Prepare and record independent exact-tree review.                 |
 | `work handoff` / `resume`                | Transfer bounded state between sessions.                          |
 | `work integration`                       | Coordinate one participating local integrator.                    |
 | `work skill install`                     | Install the canonical Codex and Claude skill.                     |
@@ -190,7 +194,7 @@ records, submissions, reconciliation, and bounded local observations.
 It intentionally does not own:
 
 - agent or subagent launch;
-- source-control mutation, pull requests, review, CI, or merging;
+- reviewer launch or source-control mutation, pull requests, CI, or merging;
 - worktree or container provisioning;
 - a daemon, hosted service, remote synchronization, or UI;
 - transcripts, prompts, or remote telemetry;
@@ -205,4 +209,6 @@ bun run test:release
 ```
 
 See [Contributing](CONTRIBUTING.md), [Security](SECURITY.md), and the
-[maintainer release runbook](docs/releasing.md).
+[maintainer release runbook](docs/releasing.md). The optional local-account
+review campaign is documented in
+[Independent-review evaluation](docs/review-evaluation.md).

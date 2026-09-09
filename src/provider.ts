@@ -223,6 +223,35 @@ export const LedgerGateReceiptSchema = strictObject({
 	digest: HashSchema,
 	observedAt: TimestampSchema,
 })
+const LedgerReviewDecisionSchema = strictObject({
+	disposition: picklist(['approved', 'changes_requested']),
+	implementationActor: boundedString(128),
+	subject: strictObject({
+		repositoryId: HashSchema,
+		headSha: CommitHashSchema,
+		treeSha: CommitHashSchema,
+	}),
+	reviewer: strictObject({
+		actor: boundedString(128),
+		session: optional(boundedString(256)),
+		evaluator: picklist(['agent', 'human']),
+	}),
+	report: strictObject({
+		reference: pipe(
+			boundedString(2000),
+			check(
+				(value) =>
+					!value.startsWith('/') &&
+					!value.startsWith('\\') &&
+					!/^[A-Za-z]:/.test(value) &&
+					!value.split(/[\\/]/u).includes('..'),
+				'Review report paths must remain repository-relative.',
+			),
+		),
+		digest: HashSchema,
+	}),
+	decidedAt: TimestampSchema,
+})
 const LedgerActivitySchema = strictObject({
 	actor: boundedString(128),
 	role: optional(boundedString(128)),
@@ -437,6 +466,20 @@ export const LedgerSubmissionInputSchema = pipe(
 	),
 )
 
+/** @description Runtime schema for one independent review decision. */
+export const LedgerReviewInputSchema = pipe(
+	strictObject({
+		workId: WorkIdSchema,
+		review: LedgerReviewDecisionSchema,
+		expectedDefinition: LedgerDefinitionExpectationSchema,
+		expectedDefinitionClosure: LedgerDefinitionClosureExpectationsSchema,
+	}),
+	check(
+		(input) => input.expectedDefinitionClosure.some(({ workId }) => workId === input.workId),
+		'Definition closure expectations must include the reviewed work ID.',
+	),
+)
+
 const LedgerGateReceiptsSchema = pipe(array(LedgerGateReceiptSchema), maxLength(32))
 const LedgerBlockTransitionInputSchema = strictObject({
 	type: literal('block'),
@@ -532,6 +575,7 @@ const LedgerItemEntries = {
 	evidence: pipe(array(LedgerEvidenceSchema), maxLength(100)),
 	candidate: optional(LedgerCandidateSchema),
 	gates: optional(pipe(array(LedgerGateReceiptSchema), maxLength(32))),
+	review: optional(LedgerReviewDecisionSchema),
 	blockReason: optional(boundedString(2000)),
 	updatedAt: TimestampSchema,
 }
@@ -721,6 +765,24 @@ export interface LedgerGateReceipt {
 	readonly observedAt: string
 }
 
+/** @description Current independent-review decision for one active implementation tree. */
+export interface LedgerReviewDecision {
+	readonly disposition: 'approved' | 'changes_requested'
+	readonly implementationActor: string
+	readonly subject: {
+		readonly repositoryId: string
+		readonly headSha: string
+		readonly treeSha: string
+	}
+	readonly reviewer: {
+		readonly actor: string
+		readonly session?: string
+		readonly evaluator: 'agent' | 'human'
+	}
+	readonly report: { readonly reference: string; readonly digest: string }
+	readonly decidedAt: string
+}
+
 /** @description Bounded cross-session continuation summary. */
 export interface LedgerHandoff {
 	readonly actor: string
@@ -755,6 +817,7 @@ export interface LedgerItem {
 	readonly evidence: readonly LedgerEvidence[]
 	readonly candidate?: LedgerCandidate
 	readonly gates?: readonly LedgerGateReceipt[]
+	readonly review?: LedgerReviewDecision
 	readonly blockReason: string | undefined
 	readonly updatedAt: string
 }
@@ -885,6 +948,14 @@ export interface LedgerSubmissionInput {
 	readonly expectedDefinitionClosure: readonly LedgerDefinitionClosureExpectation[]
 }
 
+/** @description Independent review decision guarded by the current file definition. */
+export interface LedgerReviewInput {
+	readonly workId: string
+	readonly review: LedgerReviewDecision
+	readonly expectedDefinition: LedgerDefinitionExpectation
+	readonly expectedDefinitionClosure: readonly LedgerDefinitionClosureExpectation[]
+}
+
 /** @description Explicit owned lifecycle transition accepted by a collaborative ledger. */
 export type LedgerTransitionInput =
 	| {
@@ -940,6 +1011,7 @@ export interface CollaborativeLedgerProvider extends LedgerProvider {
 	readonly recordActivity: (input: LedgerActivityInput) => Promise<WorkResult<LedgerItem>>
 	readonly recordHandoff: (input: LedgerHandoffInput) => Promise<WorkResult<LedgerItem>>
 	readonly recordSubmission: (input: LedgerSubmissionInput) => Promise<WorkResult<LedgerItem>>
+	readonly recordReview: (input: LedgerReviewInput) => Promise<WorkResult<LedgerItem>>
 	readonly transition: (input: LedgerTransitionInput) => Promise<WorkResult<LedgerItem>>
 }
 

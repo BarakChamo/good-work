@@ -17,6 +17,7 @@ import {
 	LedgerDefinitionInputSchema,
 	LedgerHandoffInputSchema,
 	LedgerItemSchema,
+	LedgerReviewInputSchema,
 	LedgerRelationsInputSchema,
 	LedgerTransitionInputSchema,
 	LedgerWorkIdInputSchema,
@@ -107,6 +108,35 @@ const completeInput = () => ({
 })
 
 describe('public provider schemas', () => {
+	it('accepts a bounded independent-review decision and rejects an incomplete subject', () => {
+		const review = {
+			disposition: 'approved',
+			implementationActor: 'implementer',
+			subject: {
+				repositoryId: digest,
+				headSha: '1'.repeat(40),
+				treeSha: '2'.repeat(40),
+			},
+			reviewer: { actor: 'reviewer', session: 'review-session', evaluator: 'agent' },
+			report: { reference: 'docs/work/reviews/ISSUE-1.md', digest },
+			decidedAt: timestamp,
+		}
+		const input = {
+			workId: 'ISSUE-1',
+			review,
+			expectedDefinition: expectedDefinition(),
+			expectedDefinitionClosure: [{ workId: 'ISSUE-1', ...expectedDefinition() }],
+		}
+
+		expect(safeParse(LedgerReviewInputSchema, input).success).toBe(true)
+		expect(
+			safeParse(LedgerReviewInputSchema, {
+				...input,
+				review: { ...review, subject: { repositoryId: digest, headSha: '1'.repeat(40) } },
+			}).success,
+		).toBe(false)
+	})
+
 	it.each([
 		{ targetRef: 'main', targetSha: '1'.repeat(40), graphFingerprint: digest },
 		{ targetRef: 'refs/heads/feature.lock', targetSha: '1'.repeat(40), graphFingerprint: digest },

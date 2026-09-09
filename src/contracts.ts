@@ -156,7 +156,7 @@ export interface ProviderStateObservation {
 }
 
 /** @description Layer responsible for one semantic continuation. */
-export type WorkActionOwner = 'work' | 'integration' | 'validation' | 'operator'
+export type WorkActionOwner = 'work' | 'review' | 'integration' | 'validation' | 'operator'
 
 /** @description Semantic continuation returned by preparation and lifecycle commands. */
 export type WorkNextAction =
@@ -175,6 +175,26 @@ export type WorkNextAction =
 			readonly then: 'work start'
 	  }
 	| { readonly action: 'perform_work'; readonly owner: 'operator'; readonly workId: string }
+	| {
+			readonly action: 'prepare_review'
+			readonly owner: 'work'
+			readonly command: 'work review prepare'
+			readonly workId: string
+			readonly actor: string
+	  }
+	| {
+			readonly action: 'perform_review'
+			readonly owner: 'review'
+			readonly workId: string
+			readonly reviewedHead: string
+			readonly report: string
+	  }
+	| {
+			readonly action: 'commit_review_receipt'
+			readonly owner: 'operator'
+			readonly paths: readonly string[]
+	  }
+	| { readonly action: 'resume_rework'; readonly owner: 'operator'; readonly workId: string }
 	| {
 			readonly action: 'finalize'
 			readonly owner: 'work'
@@ -325,6 +345,12 @@ export const WORK_ERROR_CODES = [
 	'provider_lock_release_failed',
 	'provider_mutation_failed',
 	'relation_reconciliation_failed',
+	'review_actor_conflict',
+	'review_decision_conflict',
+	'review_receipt_invalid',
+	'review_report_invalid',
+	'review_required',
+	'review_target_stale',
 	'role_conflict',
 	'role_not_allowed',
 	'session_conflict',

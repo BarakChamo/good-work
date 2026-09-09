@@ -86,7 +86,8 @@
 		"version": "changeset version && bun run sync:release-assets && bun run check:generated",
 		"sync:release-assets": "bun run scripts/sync-release-assets.ts",
 		"configure:identity": "bun run scripts/configure-identity.ts",
-		"eval:live": "bun run evals/live.ts"
+		"eval:live": "bun run evals/live.ts",
+		"eval:review:live": "bun run evals/review-live.ts"
 	},
 	"dependencies": {
 		"@beads/bd": "1.2.2",

@@ -11,6 +11,9 @@ agent-consumed commands and honor structured errors without fallback mutation.
 | Aggregate progress | `bun run work status <id> --json`; operate returned direct children, never start the aggregate                                               |
 | Start              | `bun run work start <id-or-path> --actor <actor> [--role <role>] [--session <current-session>] --json`                                       |
 | Resume             | `bun run work show <id> --json`, then `resume <id> --actor <actor> [--role <role>] [--session <current-session>] --json`                     |
+| Prepare review     | `bun run work review prepare <id> --actor <implementation-actor> [--role <role>] [--session <session>] --json`                              |
+| Review decision    | `bun run work review <approve\|request-changes> <id> --actor <reviewer> [--session <session>] --evaluator <agent\|human> --report docs/work/reviews/<id>.md --head <prepared-head> --json` |
+| Review status      | `bun run work review status <id> --json`                                                                                                      |
 | Finalize           | `bun run work finalize <id> --actor <actor> [--role <role>] [--session <session>] --evidence <kind=path> --json`                             |
 | Submit             | `bun run work submit <id> --actor <actor> [--role <role>] [--session <session>] --json`; reads finalized evidence from the repository record |
 | Integration mutex  | `bun run work integration acquire --actor <actor> [--session <session>] --json`; retain the nonce for manual release                         |
@@ -64,6 +67,15 @@ projection failure means contention did not clear and must not be bypassed. The
 same-item race still has one winner. Git branches/worktrees and containers are
 provisioned by the surrounding workflow; the CLI observes and enforces the
 declared isolation before claim and submission.
+
+When an item requires review, `start` returns `prepare_review` instead of
+`finalize`. Commit implementation and evidence, prepare the exact review packet,
+then ask the runtime or operator to run a distinct reviewer sequentially in the
+same worktree. The reviewer changes only `docs/work/reviews/<ID>.md`; the CLI
+writes the YAML receipt. A change request keeps the original claim active and
+requires a new implementation commit and review. Commit an approval report and
+receipt before finalization; `finalize` adds the verified review evidence
+automatically. Work records review but never launches the reviewer.
 
 Use `touch` after meaningful progress, `block` only for a concrete impediment,
 and `handoff --summary-file <repo-relative-path>` for durable cross-session

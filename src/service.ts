@@ -29,11 +29,21 @@ import type {
 	LedgerGateReceipt,
 	LedgerHandoff,
 	LedgerItem,
+	LedgerReviewDecision,
 	LedgerStatus,
 } from './provider'
 import { sanitizeProviderError, validateLedgerProjection } from './provider'
 import { observeGitWorkspace } from './git-observer'
 import { evaluateDeliveryCompletion, loadDeliveryReceipts } from './delivery'
+import {
+	loadReviewReceipt,
+	persistReviewReceipt,
+	prepareReviewReceipt,
+	prepareReviewSubject,
+	validateHistoricalReviewReceipt,
+	validateReviewReceipt,
+} from './review'
+import type { ReviewReceipt, ReviewSubject } from './review'
 
 /** @description Human/agent read model for one synchronized work item. */
 interface WorkItemView {
@@ -51,6 +61,7 @@ interface WorkItemView {
 	readonly evidence: readonly LedgerEvidence[]
 	readonly candidate?: LedgerCandidate
 	readonly gates: readonly LedgerGateReceipt[]
+	readonly review?: LedgerReviewDecision
 	readonly blockReason?: string
 	readonly stale: boolean
 	readonly ready: boolean
@@ -99,6 +110,40 @@ interface WorkSubmissionReceipt extends WorkCommandReceipt {
 	readonly gates: readonly LedgerGateReceipt[]
 }
 
+/** @description Read-only packet handed from an implementer to a distinct reviewer. */
+interface WorkReviewPacket {
+	readonly schemaVersion: 1
+	readonly workId: string
+	readonly title: string
+	readonly source: WorkArtifact['source']
+	readonly acceptance: readonly string[]
+	readonly implementationActor: string
+	readonly subject: ReviewSubject
+	readonly suggestedReport: string
+	readonly targetRef?: string
+}
+
+/** @description Current repository and provider view of independent review. */
+interface WorkReviewStatus {
+	readonly schemaVersion: 1
+	readonly workId: string
+	readonly state: 'pending' | 'approved' | 'changes_requested' | 'stale'
+	readonly review?: LedgerReviewDecision
+	readonly receipt?: string
+}
+
+/** @description Successful independent-review decision persisted across both state layers. */
+interface WorkReviewReceipt {
+	readonly schemaVersion: 1
+	readonly workId: string
+	readonly disposition: 'approved' | 'changes_requested'
+	readonly reviewerActor: string
+	readonly reviewerSession?: string
+	readonly evaluator: 'agent' | 'human'
+	readonly reviewReceipt: string
+	readonly review: LedgerReviewDecision
+}
+
 /** @description Descendant progress and evidence aggregate for a hierarchy node. */
 interface WorkRollup {
 	readonly schemaVersion: 1
@@ -122,6 +167,22 @@ export interface WorkContractService {
 		readonly limit?: number
 	}) => Promise<WorkResult<readonly WorkItemView[]>>
 	readonly active: () => Promise<WorkResult<readonly WorkItemView[]>>
+	readonly prepareReview: (input: {
+		readonly workId: string
+		readonly actor: string
+		readonly role?: string
+		readonly session?: string
+	}) => Promise<WorkResult<WorkReviewPacket>>
+	readonly reviewStatus: (workId: string) => Promise<WorkResult<WorkReviewStatus>>
+	readonly recordReview: (input: {
+		readonly workId: string
+		readonly reviewerActor: string
+		readonly reviewerSession?: string
+		readonly evaluator: 'agent' | 'human'
+		readonly disposition: 'approved' | 'changes_requested'
+		readonly reportReference: string
+		readonly reviewedHead: string
+	}) => Promise<WorkResult<WorkReviewReceipt>>
 	readonly submit: (input: {
 		readonly workId: string
 		readonly actor: string
@@ -493,6 +554,7 @@ const makeView = (input: {
 	evidence: input.item.evidence,
 	...(input.item.candidate === undefined ? {} : { candidate: input.item.candidate }),
 	gates: input.item.gates ?? [],
+	...(input.item.review === undefined ? {} : { review: input.item.review }),
 	...(input.item.blockReason === undefined ? {} : { blockReason: input.item.blockReason }),
 	stale: staleActivity({
 		item: input.item,
@@ -655,6 +717,63 @@ const sameGates = (
 	right: readonly LedgerGateReceipt[],
 ): boolean => isDeepStrictEqual(left ?? [], right)
 
+const sameReview = (left: LedgerReviewDecision | undefined, right: LedgerReviewDecision): boolean =>
+	isDeepStrictEqual(left, right)
+
+const reviewDecisionFromReceipt = (receipt: ReviewReceipt): LedgerReviewDecision => ({
+	disposition: receipt.disposition,
+	implementationActor: receipt.implementationActor,
+	subject: receipt.subject,
+	reviewer: receipt.reviewer,
+	report: receipt.report,
+	decidedAt: receipt.decidedAt,
+})
+
+const acceptedReview = async (input: {
+	readonly root: string
+	readonly projectId: string
+	readonly item: LedgerItem
+	readonly historical?: boolean
+}): Promise<WorkResult<ReviewReceipt>> => {
+	const receipt = await loadReviewReceipt({ root: input.root, workId: input.item.workId })
+	if (!receipt.ok) {
+		return receipt
+	}
+	if (
+		receipt.value === undefined ||
+		input.item.review === undefined ||
+		receipt.value.disposition !== 'approved'
+	) {
+		return {
+			ok: false,
+			error: {
+				type: 'work_contract_error',
+				code: 'review_required',
+				message: `${input.item.workId} requires an independent approval before completion.`,
+			},
+		}
+	}
+	if (
+		receipt.value.projectId !== input.projectId ||
+		receipt.value.definitionHash !== input.item.source.hash ||
+		receipt.value.implementationActor !== input.item.activity?.actor ||
+		!sameReview(input.item.review, reviewDecisionFromReceipt(receipt.value))
+	) {
+		return {
+			ok: false,
+			error: {
+				type: 'work_contract_error',
+				code: 'review_receipt_invalid',
+				message: 'The independent review receipt does not match current work state.',
+			},
+		}
+	}
+	const current = await (input.historical === true
+		? validateHistoricalReviewReceipt({ root: input.root, receipt: receipt.value })
+		: validateReviewReceipt({ root: input.root, receipt: receipt.value }))
+	return current.ok ? { ok: true, value: receipt.value } : current
+}
+
 const invalidLifecycleProjection = (): WorkResult<never> => ({
 	ok: false,
 	error: {
@@ -680,6 +799,7 @@ const validateLifecycleItem = (input: {
 	readonly evidence?: readonly LedgerEvidence[]
 	readonly candidate?: LedgerCandidate
 	readonly gates?: readonly LedgerGateReceipt[]
+	readonly review?: LedgerReviewDecision
 	readonly blockReason?: { readonly value: string | undefined }
 	readonly definitionRevision?: CanonicalDefinitionRevision
 }): WorkResult<LedgerItem> => {
@@ -706,6 +826,7 @@ const validateLifecycleItem = (input: {
 		(input.evidence !== undefined && !sameEvidence(item.evidence, input.evidence)) ||
 		(input.candidate !== undefined && !sameCandidate(item.candidate, input.candidate)) ||
 		(input.gates !== undefined && !sameGates(item.gates, input.gates)) ||
+		(input.review !== undefined && !sameReview(item.review, input.review)) ||
 		(input.blockReason !== undefined && item.blockReason !== input.blockReason.value)
 	) {
 		return invalidLifecycleProjection()
@@ -817,10 +938,12 @@ export const createWorkContractService = (input: {
 	readonly staleClaimMinutes?: number
 	readonly deliveryPolicy?: WorkDeliveryPolicy
 	readonly definitionRevision?: CanonicalDefinitionRevision
+	readonly historicalReviewRecovery?: boolean
 }): WorkContractService => {
 	const clock = input.clock ?? (() => new Date())
 	const staleClaimMinutes = input.staleClaimMinutes ?? 90
 	const deliveryPolicy = input.deliveryPolicy ?? EVIDENCE_ONLY_DELIVERY_POLICY
+	const historicalReviewRecovery = input.historicalReviewRecovery === true
 	const artifacts = new Map(input.graph.items.map((artifact) => [artifact.id, artifact]))
 	const childrenByParent = new Map<string, string[]>()
 	for (const artifact of input.graph.items) {
@@ -1029,6 +1152,422 @@ export const createWorkContractService = (input: {
 				staleClaimMinutes,
 			}),
 		}
+	}
+
+	const prepareReview: WorkContractService['prepareReview'] = async (request) => {
+		const valid = validateActorRequest(request)
+		if (!valid.ok) {
+			return valid
+		}
+		const current = await find(request.workId)
+		if (!current.ok) {
+			return current
+		}
+		if (current.value.artifact.execution === 'aggregate') {
+			return {
+				ok: false,
+				error: {
+					type: 'work_contract_error',
+					code: 'aggregate_not_executable',
+					message: `${request.workId} is aggregate work and has no implementation candidate to review.`,
+				},
+			}
+		}
+		if (current.value.item.status !== 'in_progress') {
+			return {
+				ok: false,
+				error: {
+					type: 'work_contract_error',
+					code: 'invalid_transition',
+					message: `${request.workId} cannot request review from ${current.value.item.status}.`,
+				},
+			}
+		}
+		const owned = verifyOperationContext({
+			item: current.value.item,
+			actor: request.actor,
+			...(request.role === undefined ? {} : { role: request.role }),
+			...(request.session === undefined ? {} : { session: request.session }),
+		})
+		if (!owned.ok) {
+			return owned
+		}
+		const subject = await prepareReviewSubject({ root: input.root })
+		return subject.ok
+			? {
+					ok: true,
+					value: {
+						schemaVersion: 1,
+						workId: request.workId,
+						title: current.value.artifact.title,
+						source: current.value.artifact.source,
+						acceptance: current.value.artifact.acceptance,
+						implementationActor: request.actor,
+						subject: subject.value,
+						suggestedReport: `docs/work/reviews/${request.workId}.md`,
+						...(deliveryPolicy.targetRef === undefined
+							? {}
+							: { targetRef: deliveryPolicy.targetRef }),
+					},
+				}
+			: subject
+	}
+
+	const reviewStatus: WorkContractService['reviewStatus'] = async (workId) => {
+		const current = await find(workId)
+		if (!current.ok) {
+			return current
+		}
+		if (current.value.artifact.execution === 'aggregate') {
+			return {
+				ok: false,
+				error: {
+					type: 'work_contract_error',
+					code: 'aggregate_not_executable',
+					message: `${workId} is aggregate work and has no implementation review.`,
+				},
+			}
+		}
+		const receipt = await loadReviewReceipt({ root: input.root, workId })
+		if (!receipt.ok) {
+			return receipt
+		}
+		if (receipt.value === undefined || current.value.item.review === undefined) {
+			return { ok: true, value: { schemaVersion: 1, workId, state: 'pending' } }
+		}
+		if (
+			receipt.value.projectId !== input.graph.projectId ||
+			receipt.value.definitionHash !== current.value.item.source.hash ||
+			receipt.value.implementationActor !== current.value.item.activity?.actor
+		) {
+			return {
+				ok: false,
+				error: {
+					type: 'work_contract_error',
+					code: 'review_receipt_invalid',
+					message: 'The independent review receipt does not match current work state.',
+				},
+			}
+		}
+		if (
+			!sameReview(current.value.item.review, {
+				disposition: receipt.value.disposition,
+				implementationActor: receipt.value.implementationActor,
+				subject: receipt.value.subject,
+				reviewer: receipt.value.reviewer,
+				report: receipt.value.report,
+				decidedAt: receipt.value.decidedAt,
+			})
+		) {
+			return invalidLifecycleProjection()
+		}
+		const freshness = await (current.value.item.status === 'closed' || historicalReviewRecovery
+			? validateHistoricalReviewReceipt({ root: input.root, receipt: receipt.value })
+			: validateReviewReceipt({ root: input.root, receipt: receipt.value }))
+		return freshness.ok
+			? {
+					ok: true,
+					value: {
+						schemaVersion: 1,
+						workId,
+						state: receipt.value.disposition,
+						review: current.value.item.review,
+						receipt: `docs/work/reviews/${workId}.yaml`,
+					},
+				}
+			: freshness.error.code === 'review_target_stale'
+				? {
+						ok: true,
+						value: {
+							schemaVersion: 1,
+							workId,
+							state: 'stale',
+							review: current.value.item.review,
+							receipt: `docs/work/reviews/${workId}.yaml`,
+						},
+					}
+				: freshness
+	}
+
+	// oxlint-disable-next-line eslint/complexity -- Review admission keeps validation, durable recovery, and provider publication in one fail-closed boundary.
+	const recordReview: WorkContractService['recordReview'] = async (request) => {
+		if (
+			!isRecord(request) ||
+			!WORK_ID_PATTERN.test(request.workId) ||
+			!boundedScalar(request.reviewerActor, 128) ||
+			(request.reviewerSession !== undefined && !boundedScalar(request.reviewerSession, 256)) ||
+			!['agent', 'human'].includes(request.evaluator) ||
+			!['approved', 'changes_requested'].includes(request.disposition) ||
+			!boundedScalar(request.reportReference, 2000) ||
+			!/^[a-f0-9]{40,64}$/u.test(request.reviewedHead)
+		) {
+			return operationInputError('Independent review input is invalid.')
+		}
+		const current = await find(request.workId)
+		if (!current.ok) {
+			return current
+		}
+		if (
+			current.value.artifact.execution === 'aggregate' ||
+			current.value.item.status !== 'in_progress' ||
+			current.value.item.activity === undefined
+		) {
+			return {
+				ok: false,
+				error: {
+					type: 'work_contract_error',
+					code:
+						current.value.artifact.execution === 'aggregate'
+							? 'aggregate_not_executable'
+							: 'invalid_transition',
+					message: `${request.workId} has no active implementation to review.`,
+				},
+			}
+		}
+		const implementationActor = current.value.item.activity.actor
+		if (request.reviewerActor === implementationActor) {
+			return {
+				ok: false,
+				error: {
+					type: 'work_contract_error',
+					code: 'review_actor_conflict',
+					message: 'The implementation actor cannot approve its own work.',
+				},
+			}
+		}
+		const repositoryReceipt = await loadReviewReceipt({ root: input.root, workId: request.workId })
+		if (!repositoryReceipt.ok) {
+			return repositoryReceipt
+		}
+		if (
+			current.value.item.review === undefined &&
+			repositoryReceipt.value !== undefined &&
+			repositoryReceipt.value.subject.headSha === request.reviewedHead
+		) {
+			const receipt = repositoryReceipt.value
+			if (
+				receipt.projectId !== input.graph.projectId ||
+				receipt.definitionHash !== current.value.item.source.hash ||
+				receipt.implementationActor !== implementationActor ||
+				receipt.disposition !== request.disposition ||
+				receipt.reviewer.actor !== request.reviewerActor ||
+				receipt.reviewer.session !== request.reviewerSession ||
+				receipt.reviewer.evaluator !== request.evaluator ||
+				receipt.report.reference !== request.reportReference
+			) {
+				return {
+					ok: false,
+					error: {
+						type: 'work_contract_error',
+						code: 'review_receipt_invalid',
+						message: 'The repository review receipt does not match this recovery request.',
+					},
+				}
+			}
+			const fresh = await (historicalReviewRecovery
+				? validateHistoricalReviewReceipt({ root: input.root, receipt })
+				: validateReviewReceipt({ root: input.root, receipt }))
+			if (!fresh.ok) {
+				return fresh
+			}
+			const review = reviewDecisionFromReceipt(receipt)
+			const restored = await input.provider.recordReview({
+				workId: request.workId,
+				review,
+				expectedDefinition: definitionExpectation(current.value.artifact, current.value.item),
+				expectedDefinitionClosure: definitionClosureExpectations(
+					request.workId,
+					current.value.byId,
+				),
+			})
+			if (!restored.ok) {
+				return sanitizeProviderFailure(restored.error)
+			}
+			const validated = validateLifecycleItem({
+				value: restored.value,
+				projectId: input.graph.projectId,
+				artifact: current.value.artifact,
+				workId: request.workId,
+				status: 'in_progress',
+				assignee: current.value.item.assignee,
+				activity: current.value.item.activity,
+				review,
+				...(input.definitionRevision === undefined
+					? {}
+					: { definitionRevision: input.definitionRevision }),
+			})
+			return validated.ok
+				? {
+						ok: true,
+						value: {
+							schemaVersion: 1,
+							workId: request.workId,
+							disposition: review.disposition,
+							reviewerActor: review.reviewer.actor,
+							...(review.reviewer.session === undefined
+								? {}
+								: { reviewerSession: review.reviewer.session }),
+							evaluator: review.reviewer.evaluator,
+							reviewReceipt: `docs/work/reviews/${request.workId}.yaml`,
+							review,
+						},
+					}
+				: validated
+		}
+		const workspace = await observeGitWorkspace({ root: input.root })
+		if (
+			!workspace.ok ||
+			!workspace.value.available ||
+			workspace.value.repositoryId === undefined ||
+			workspace.value.headSha !== request.reviewedHead ||
+			workspace.value.treeSha === undefined
+		) {
+			return {
+				ok: false,
+				error: {
+					type: 'work_contract_error',
+					code: 'review_target_stale',
+					message: 'The implementation changed while independent review was active.',
+				},
+			}
+		}
+		const existingReview = current.value.item.review
+		if (existingReview?.subject.headSha === request.reviewedHead) {
+			if (
+				existingReview.disposition !== request.disposition ||
+				existingReview.reviewer.actor !== request.reviewerActor ||
+				existingReview.reviewer.session !== request.reviewerSession ||
+				existingReview.reviewer.evaluator !== request.evaluator ||
+				existingReview.report.reference !== request.reportReference
+			) {
+				return {
+					ok: false,
+					error: {
+						type: 'work_contract_error',
+						code: 'review_decision_conflict',
+						message: 'This implementation revision already has a different review decision.',
+					},
+				}
+			}
+			const receipt: ReviewReceipt = {
+				version: 1,
+				projectId: input.graph.projectId,
+				workId: request.workId,
+				definitionHash: current.value.item.source.hash,
+				disposition: existingReview.disposition,
+				implementationActor: existingReview.implementationActor,
+				subject: existingReview.subject,
+				reviewer: existingReview.reviewer,
+				report: existingReview.report,
+				decidedAt: existingReview.decidedAt,
+			}
+			const currentReceipt = await validateReviewReceipt({ root: input.root, receipt })
+			if (!currentReceipt.ok) {
+				return currentReceipt
+			}
+			const persisted = await persistReviewReceipt({ root: input.root, receipt })
+			return persisted.ok
+				? {
+						ok: true,
+						value: {
+							schemaVersion: 1,
+							workId: request.workId,
+							disposition: existingReview.disposition,
+							reviewerActor: existingReview.reviewer.actor,
+							...(existingReview.reviewer.session === undefined
+								? {}
+								: { reviewerSession: existingReview.reviewer.session }),
+							evaluator: existingReview.reviewer.evaluator,
+							reviewReceipt: persisted.value.path,
+							review: existingReview,
+						},
+					}
+				: persisted
+		}
+		const prepared = await prepareReviewReceipt({
+			root: input.root,
+			projectId: input.graph.projectId,
+			definitionHash: current.value.item.source.hash,
+			workId: request.workId,
+			implementationActor,
+			reviewer: {
+				actor: request.reviewerActor,
+				...(request.reviewerSession === undefined ? {} : { session: request.reviewerSession }),
+				evaluator: request.evaluator,
+			},
+			disposition: request.disposition,
+			reportReference: request.reportReference,
+			subject: {
+				repositoryId: workspace.value.repositoryId,
+				headSha: workspace.value.headSha,
+				treeSha: workspace.value.treeSha,
+			},
+			decidedAt: clock().toISOString(),
+		})
+		if (!prepared.ok) {
+			return prepared
+		}
+		const review: LedgerReviewDecision = {
+			disposition: prepared.value.receipt.disposition,
+			implementationActor: prepared.value.receipt.implementationActor,
+			subject: prepared.value.receipt.subject,
+			reviewer: prepared.value.receipt.reviewer,
+			report: prepared.value.receipt.report,
+			decidedAt: prepared.value.receipt.decidedAt,
+		}
+		const updated = await input.provider.recordReview({
+			workId: request.workId,
+			review,
+			expectedDefinition: definitionExpectation(current.value.artifact, current.value.item),
+			expectedDefinitionClosure: definitionClosureExpectations(request.workId, current.value.byId),
+		})
+		if (!updated.ok) {
+			return sanitizeProviderFailure(updated.error)
+		}
+		const validated = validateLifecycleItem({
+			value: updated.value,
+			projectId: input.graph.projectId,
+			artifact: current.value.artifact,
+			workId: request.workId,
+			status: 'in_progress',
+			assignee: current.value.item.assignee,
+			activity: current.value.item.activity,
+			review,
+			...(input.definitionRevision === undefined
+				? {}
+				: { definitionRevision: input.definitionRevision }),
+		})
+		if (!validated.ok) {
+			return validated
+		}
+		const persisted = await persistReviewReceipt({
+			root: input.root,
+			receipt: prepared.value.receipt,
+		})
+		if (!persisted.ok) {
+			return persisted
+		}
+		const stillCurrent = await validateReviewReceipt({
+			root: input.root,
+			receipt: persisted.value.receipt,
+		})
+		return stillCurrent.ok
+			? {
+					ok: true,
+					value: {
+						schemaVersion: 1,
+						workId: request.workId,
+						disposition: review.disposition,
+						reviewerActor: review.reviewer.actor,
+						...(review.reviewer.session === undefined
+							? {}
+							: { reviewerSession: review.reviewer.session }),
+						evaluator: review.reviewer.evaluator,
+						reviewReceipt: persisted.value.path,
+						review,
+					},
+				}
+			: stillCurrent
 	}
 
 	const validateDefinition: WorkContractService['validateDefinition'] = async (workId) => {
@@ -1601,6 +2140,17 @@ export const createWorkContractService = (input: {
 				},
 			}
 		}
+		const review = current.value.artifact.evidenceRequirements.includes('review')
+			? await acceptedReview({
+					root: input.root,
+					projectId: input.graph.projectId,
+					item: current.value.item,
+					historical: historicalReviewRecovery,
+				})
+			: undefined
+		if (review !== undefined && !review.ok) {
+			return review
+		}
 		const previousCandidate = current.value.item.candidate
 		const sameRevision =
 			previousCandidate?.repositoryId === workspace.value.repositoryId &&
@@ -1640,23 +2190,55 @@ export const createWorkContractService = (input: {
 				}),
 			)
 			.digest('hex')
+		const validationGate: LedgerGateReceipt = {
+			schemaVersion: 1,
+			gate: 'validation',
+			result: 'passed',
+			candidateGeneration: generation,
+			projectId: candidate.projectId,
+			workId: candidate.workId,
+			graphFingerprint: candidate.graphFingerprint,
+			repositoryId: candidate.repositoryId,
+			headSha: candidate.headSha,
+			treeSha: candidate.treeSha,
+			issuer: { kind: 'self', id: 'work-contract:evidence' },
+			reference: 'work-contract:evidence',
+			digest: gateDigest,
+			observedAt: timestamp,
+		}
+		const reviewGate: LedgerGateReceipt | undefined =
+			review?.ok === true
+				? {
+						schemaVersion: 1,
+						gate: 'review',
+						result: 'passed',
+						candidateGeneration: generation,
+						projectId: candidate.projectId,
+						workId: candidate.workId,
+						graphFingerprint: candidate.graphFingerprint,
+						repositoryId: candidate.repositoryId,
+						headSha: candidate.headSha,
+						treeSha: candidate.treeSha,
+						issuer: { kind: 'adapter', id: 'work:local-review' },
+						reference: `docs/work/reviews/${candidate.workId}.yaml`,
+						digest: createHash('sha256')
+							.update(
+								JSON.stringify({
+									review: review.value,
+									candidate: {
+										generation,
+										headSha: candidate.headSha,
+										treeSha: candidate.treeSha,
+									},
+								}),
+							)
+							.digest('hex'),
+						observedAt: timestamp,
+					}
+				: undefined
 		const gates: readonly LedgerGateReceipt[] = [
-			{
-				schemaVersion: 1,
-				gate: 'validation',
-				result: 'passed',
-				candidateGeneration: generation,
-				projectId: candidate.projectId,
-				workId: candidate.workId,
-				graphFingerprint: candidate.graphFingerprint,
-				repositoryId: candidate.repositoryId,
-				headSha: candidate.headSha,
-				treeSha: candidate.treeSha,
-				issuer: { kind: 'self', id: 'work-contract:evidence' },
-				reference: 'work-contract:evidence',
-				digest: gateDigest,
-				observedAt: timestamp,
-			},
+			validationGate,
+			...(reviewGate === undefined ? [] : [reviewGate]),
 		]
 		const updated = await input.provider.recordSubmission({
 			workId: request.workId,
@@ -1855,6 +2437,17 @@ export const createWorkContractService = (input: {
 				},
 			}
 		}
+		if (!isAggregate && current.value.artifact.evidenceRequirements.includes('review')) {
+			const review = await acceptedReview({
+				root: input.root,
+				projectId: input.graph.projectId,
+				item: current.value.item,
+				historical: historicalReviewRecovery,
+			})
+			if (!review.ok) {
+				return review
+			}
+		}
 		const updated = await input.provider.transition({
 			type: 'complete',
 			workId: request.workId,
@@ -2001,6 +2594,9 @@ export const createWorkContractService = (input: {
 		inspect,
 		ready,
 		active,
+		prepareReview,
+		reviewStatus,
+		recordReview,
 		submit,
 		claim,
 		touch: async (request) => updateActivity({ ...request, command: 'touch' }),
