@@ -22,13 +22,17 @@ For ledger-enabled delivery, the agent:
 2. commits implementation and evidence;
 3. when configured, runs `work review prepare` and pauses source edits while a
    distinct reviewer operates sequentially in the same worktree;
-4. commits the review report and receipt after approval, or fixes requested
-   changes, commits them, and repeats review without reopening the issue;
-5. runs `work finalize` and commits the one completion record;
-6. reruns applicable checks and runs `work submit`;
-7. uses the repository's external CI/merge flow;
-8. returns to the claimed worktree and runs `work reconcile`;
-9. cleans up only after the terminal action says cleanup is eligible.
+4. runs `work review status` after the reviewer returns and trusts only a
+   structured `approved` or `changes_requested` result with a receipt;
+5. ensures the review report and receipt are committed after approval—without a
+   duplicate commit if the reviewer already committed only those artifacts—or
+   preserves and reads requested changes, commits the decision when needed,
+   fixes them, and repeats review without reopening the issue;
+6. runs `work finalize` and commits the one completion record;
+7. reruns applicable checks and runs `work submit`;
+8. uses the repository's external CI/merge flow;
+9. returns to the claimed worktree and runs `work reconcile`;
+10. cleans up only after the terminal action says cleanup is eligible.
 
 An agent statement that work is done is not completion evidence.
 
@@ -44,8 +48,19 @@ work review prepare ISSUE-123 --actor <implementation-actor> --json
 The surrounding runtime or human operator creates the reviewer. Work only
 returns the exact tree, issue source, acceptance criteria, report path, and
 semantic next action. A reviewer must use a different actor, may share the same
-runtime session, and must not modify source. It writes
-`docs/work/reviews/ISSUE-123.md`, then records one decision:
+runtime session, and must not modify source. The prepared head stays immutable:
+the reviewer must not commit, amend, switch revisions, or substitute a later
+HEAD before recording the decision. It writes `docs/work/reviews/ISSUE-123.md`
+without committing it, then records one decision:
+
+The reviewer uses the supplied packet and does not rerun `review prepare` or use
+Git mutations before deciding. If an abandoned report already exists, inspect
+and overwrite it in place; do not move or discard it. After the decision, the
+reviewer may commit exactly the canonical report and receipt when repository
+policy permits, then recheck `review status`; otherwise the implementation agent
+commits them. The implementation agent must tolerate either case, verify that an
+existing review-artifact commit contains no unrelated files, and never create an
+empty duplicate commit.
 
 ```sh
 work review approve ISSUE-123 --actor <reviewer> --evaluator agent \
@@ -60,6 +75,14 @@ the implementer commits the fix and prepares a fresh review. Once completion is
 recorded, the report digest and receipt are historical evidence: unrelated later
 commits, squash integration, a fresh clone, or deleted local Beads state do not
 invalidate them.
+
+Both reviewer and implementation owner run `work review status ISSUE-123
+--json` after the decision attempt. `pending` means the reviewer never recorded
+a decision. `incomplete` identifies whether the provider record or repository
+receipt is missing and returns the surviving decision; repeat that exact
+`approve` or `request-changes` command with the same reviewer identity to repair
+the interrupted half. `stale` requires a fresh implementation review. Never
+discard a changes-requested report or infer approval from an agent message.
 
 ## Handoff and recovery
 

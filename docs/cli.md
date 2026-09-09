@@ -66,6 +66,19 @@ reviewer. A source change makes the prior decision stale and requires a new
 prepare/decision cycle. `finalize` refuses review-required work until the current
 tree is approved.
 
+Always check `work review status <id> --json` after a reviewer returns. A
+`pending` result means no decision was recorded. An `incomplete` result reports
+whether the provider record or repository receipt is missing and retains the
+surviving decision metadata; repeat that exact decision with the same reviewer
+identity to repair the interrupted write. `approved` and `changes_requested`
+are complete only when the receipt is present. This makes reviewer handoff
+verification independent of an agent's natural-language completion claim.
+Review-status responses use schema version 2; consumers must reject unknown
+schema versions rather than assuming the earlier four-state schema.
+Successful review decisions return `ensure_review_evidence_committed`, then
+`verify_review_status`, before the rework or finalization action. “Ensure” means
+commit only when the two canonical review files are not already committed.
+
 ## Coordination and diagnostics
 
 | Command                                       | Use                                                |

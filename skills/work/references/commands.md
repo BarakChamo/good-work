@@ -71,11 +71,24 @@ declared isolation before claim and submission.
 When an item requires review, `start` returns `prepare_review` instead of
 `finalize`. Commit implementation and evidence, prepare the exact review packet,
 then ask the runtime or operator to run a distinct reviewer sequentially in the
-same worktree. The reviewer changes only `docs/work/reviews/<ID>.md`; the CLI
-writes the YAML receipt. A change request keeps the original claim active and
+same worktree. The reviewer writes only an uncommitted
+`docs/work/reviews/<ID>.md`, keeps the prepared HEAD unchanged until it records
+the decision against that exact SHA, and lets the CLI write the YAML receipt.
+The prepared packet is sufficient: the reviewer never reruns `review prepare`
+or runs Git mutations before deciding. An abandoned report is inspected and
+overwritten in place, not discarded or moved. After deciding, the reviewer may
+commit exactly the report and receipt when repository policy permits, then must
+verify `review status` again; otherwise the parent commits them. A change request
+keeps the original claim active and
 requires a new implementation commit and review. Commit an approval report and
 receipt before finalization; `finalize` adds the verified review evidence
 automatically. Work records review but never launches the reviewer.
+Follow `ensure_review_evidence_committed` and `verify_review_status` before the
+returned rework or finalization action.
+Both reviewer and parent must verify `review status` after the reviewer returns.
+Only `approved` or `changes_requested` with a receipt is a complete handoff.
+Retry an `incomplete` decision with the exact same reviewer identity and inputs;
+route `pending` through another reviewer and `stale` through a fresh prepare.
 
 Use `touch` after meaningful progress, `block` only for a concrete impediment,
 and `handoff --summary-file <repo-relative-path>` for durable cross-session

@@ -161,6 +161,55 @@ test('finalizes in a worktree and reconstructs closed work after external state 
 		reviewedHead ?? '',
 	)
 	expect(approved.status, approved.stderr.join('\n')).toBe(0)
+	const approvedOutput = approved.stdout.at(-1) ?? ''
+	const ensureReviewIndex = approvedOutput.indexOf('"action":"ensure_review_evidence_committed"')
+	const verifyReviewIndex = approvedOutput.indexOf('"action":"verify_review_status"')
+	const finalizeIndex = approvedOutput.indexOf('"action":"finalize"')
+	expect(ensureReviewIndex).toBeGreaterThan(-1)
+	expect(verifyReviewIndex).toBeGreaterThan(ensureReviewIndex)
+	expect(finalizeIndex).toBeGreaterThan(verifyReviewIndex)
+	const reviewReceiptPath = join(linked, 'docs/work/reviews/ISSUE-1.yaml')
+	const reviewReceipt = await readFile(reviewReceiptPath, 'utf8')
+	await rm(reviewReceiptPath)
+	await git(linked, 'add', 'docs/work/reviews/ISSUE-1.md')
+	await git(linked, 'commit', '-m', 'preserve interrupted review report')
+	const interruptedReview = await invoke(linked, 'review', 'status', 'ISSUE-1')
+	expect(interruptedReview.status, interruptedReview.stderr.join('\n')).toBe(0)
+	expect(interruptedReview.stdout.join('\n')).toContain('"schemaVersion":2')
+	expect(interruptedReview.stdout.join('\n')).toContain('"state":"incomplete"')
+	expect(interruptedReview.stdout.join('\n')).toContain('"missing":"repository_receipt"')
+	const interruptedFinalize = await invoke(
+		linked,
+		'finalize',
+		'ISSUE-1',
+		'--actor',
+		'worker',
+		'--evidence',
+		'artifact=reports/result.md',
+	)
+	expect(interruptedFinalize.status).toBe(1)
+	expect(interruptedFinalize.stderr.join('\n')).toContain('review_receipt_invalid')
+	const recoveredReview = await invoke(
+		linked,
+		'review',
+		'approve',
+		'ISSUE-1',
+		'--actor',
+		'reviewer',
+		'--session',
+		'review-session',
+		'--evaluator',
+		'agent',
+		'--report',
+		'docs/work/reviews/ISSUE-1.md',
+		'--head',
+		reviewedHead ?? '',
+	)
+	expect(recoveredReview.status, recoveredReview.stderr.join('\n')).toBe(0)
+	const recoveredOutput = recoveredReview.stdout.at(-1) ?? ''
+	expect(recoveredOutput).toContain('"action":"ensure_review_evidence_committed"')
+	expect(recoveredOutput).toContain('"action":"verify_review_status"')
+	await expect(readFile(reviewReceiptPath, 'utf8')).resolves.toBe(reviewReceipt)
 	await git(linked, 'add', 'docs/work/reviews')
 	await git(linked, 'commit', '-m', 'record independent review')
 

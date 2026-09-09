@@ -1159,9 +1159,15 @@ const executeWorkContractInvocation = async (
 							}
 				const nextActions: WorkNextAction[] = [
 					{
-						action: 'commit_review_receipt',
+						action: 'ensure_review_evidence_committed',
 						owner: 'operator',
 						paths: [report, decision.value.reviewReceipt],
+					},
+					{
+						action: 'verify_review_status',
+						owner: 'work',
+						command: 'work review status',
+						workId,
 					},
 					...(decision.value.disposition === 'approved'
 						? [approvedAction]
@@ -1293,11 +1299,18 @@ const executeWorkContractInvocation = async (
 						ok: false,
 						error: {
 							type: 'work_contract_error',
-							code: review.value.state === 'stale' ? 'review_target_stale' : 'review_required',
+							code:
+								review.value.state === 'stale'
+									? 'review_target_stale'
+									: review.value.state === 'incomplete'
+										? 'review_receipt_invalid'
+										: 'review_required',
 							message:
 								review.value.state === 'stale'
 									? 'The independent review is stale; request a fresh review.'
-									: 'Independent approval is required before finalizing work.',
+									: review.value.state === 'incomplete'
+										? 'The independent review was only partially persisted; repeat its exact decision before finalizing.'
+										: 'Independent approval is required before finalizing work.',
 						},
 					})
 				}

@@ -137,10 +137,22 @@ direct children.
   the returned packet and the reviewer protocol below; Work never launches it.
   A human reviewer may follow the same protocol. The reviewer writes exactly
   `docs/work/reviews/<ID>.md` and records either `review approve` or
-  `review request-changes` against the exact `subject.headSha`. Commit the report
-  and generated YAML receipt. Requested changes leave ownership and lifecycle
-  state intact: the implementer makes and commits fixes, prepares a new exact
-  revision, and requests a fresh review. Approval is required before `finalize`.
+  `review request-changes` against the exact `subject.headSha`. After the
+  reviewer returns, always run `work review status <id> --json`; never accept a
+  prose completion claim as the decision. Only `approved` or
+  `changes_requested` with the durable receipt is complete. `pending` means no
+  decision was recorded and requires another reviewer pass. `incomplete` means
+  one persistence layer was interrupted: repeat the exact recorded decision
+  with the same reviewer identity and inputs, then check status again. `stale`
+  requires a fresh prepare/review cycle. Ensure the report and generated YAML
+  receipt are committed before continuing: commit them if still uncommitted, or
+  verify an existing reviewer commit contains only those files. Never create an
+  empty duplicate commit. Follow the returned
+  `ensure_review_evidence_committed` and `verify_review_status` actions in order
+  before rework or finalization. Requested changes leave ownership and lifecycle
+  state intact: read and preserve the report, commit the decision, make and
+  commit fixes, prepare a new exact revision, and request a fresh review.
+  Approval is required before `finalize`.
 - `finalize`: after acceptance is satisfied, checks pass, and implementation
   changes plus evidence are committed, run `work finalize <id> --actor <actor>
 --evidence <kind=path> --json`. It validates ownership and evidence, requires a
@@ -218,16 +230,32 @@ When the parent runtime delegates review, the reviewer is an evaluator, not a
 second implementer:
 
 1. Work in the already claimed worktree and verify `HEAD` equals the packet's
-   `subject.headSha`. Do not claim, resume, release, reopen, finalize, submit, or
-   reconcile the item.
+   `subject.headSha`. Treat that SHA as immutable until the decision is recorded:
+   do not commit, amend, switch revisions, or substitute a later HEAD. Do not
+   claim, resume, release, reopen, finalize, submit, or reconcile the item.
+   The packet is already prepared; do not run `review prepare` again. Do not use
+   `git add`, `commit`, `stash`, `reset`, `checkout`, or another Git mutation.
 2. Read the issue source, acceptance criteria, candidate diff, tests, and
    relevant repository instructions. Run proportionate read-only checks; do not
    modify implementation files.
 3. Write a concise findings-first report to the packet's `suggestedReport`.
    Include exact actionable findings, severity, evidence, and any residual risk.
+   Leave the report uncommitted until the decision is recorded so it cannot move
+   the reviewed HEAD. If an abandoned report already exists at that exact path,
+   inspect it and replace its contents in place; never stash, delete, or
+   relocate it.
 4. If there are no blocking findings, run `work review approve <id> --actor
    <distinct-reviewer> --evaluator agent --report <report> --head <packet-head>
    --json`. Otherwise run the identical `review request-changes` form.
-5. Return the structured result to the parent. Do not commit or fix source; the
-   parent follows the returned actions. The reviewer identity must differ from
-   the implementation actor, although the runtime session may be shared.
+5. Run `work review status <id> --json` and verify it returns the disposition
+   just recorded plus a receipt. If the decision command was interrupted and
+   status is `incomplete`, repeat the exact decision with the same identity and
+   inputs; it is idempotent. Do not report completion while status is `pending`,
+   `incomplete`, or `stale`.
+6. Once the decision exists, either leave the report and receipt for the parent
+   or commit exactly those two canonical files when repository policy permits.
+   Run `review status` again after any such commit. Never commit implementation,
+   other evidence, or unrelated files. Return the structured decision, status,
+   and whether review artifacts were committed. Do not fix source; the parent
+   follows the returned actions. The reviewer identity must differ from the
+   implementation actor, although the runtime session may be shared.

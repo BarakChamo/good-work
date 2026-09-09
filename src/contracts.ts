@@ -190,9 +190,15 @@ export type WorkNextAction =
 			readonly report: string
 	  }
 	| {
-			readonly action: 'commit_review_receipt'
+			readonly action: 'ensure_review_evidence_committed'
 			readonly owner: 'operator'
 			readonly paths: readonly string[]
+	  }
+	| {
+			readonly action: 'verify_review_status'
+			readonly owner: 'work'
+			readonly command: 'work review status'
+			readonly workId: string
 	  }
 	| { readonly action: 'resume_rework'; readonly owner: 'operator'; readonly workId: string }
 	| {
