@@ -9,12 +9,23 @@ import { afterAll, describe, expect, it } from 'vitest'
 
 const root = resolve(import.meta.dirname, '..')
 const output = resolve(root, 'dist')
+const packageDocument: unknown = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'))
+if (
+	typeof packageDocument !== 'object' ||
+	packageDocument === null ||
+	Array.isArray(packageDocument) ||
+	!('version' in packageDocument) ||
+	typeof packageDocument.version !== 'string'
+) {
+	throw new Error('package.json must contain a release version.')
+}
+const version = packageDocument.version
 
 const build = () => {
 	const result = spawnSync('bun', ['run', 'scripts/build-release-artifacts.ts'], {
 		cwd: root,
 		encoding: 'utf8',
-		env: { ...process.env, RELEASE_VERSION: '0.1.0' },
+		env: { ...process.env, RELEASE_VERSION: version },
 	})
 	if (result.status !== 0) throw new Error(result.stderr.trim() || 'Release build failed.')
 }
