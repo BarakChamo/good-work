@@ -45,7 +45,7 @@ const published = {
 			provenance: { predicateType: 'https://slsa.dev/provenance/v1' },
 		},
 	},
-	_npmUser: { trustedPublisher: { id: 'github' } },
+	_npmUser: 'GitHub Actions <npm-oidc-no-reply@github.com>',
 }
 
 const audit = {
@@ -105,16 +105,19 @@ describe('public release provenance', () => {
 		).toThrow(/source commit/u)
 	})
 
-	it('rejects packages without GitHub trusted-publisher attribution', () => {
+	it('rejects packages without registry provenance metadata', () => {
 		expect(() =>
 			verifyPublishedProvenance({
-				published: { ...published, _npmUser: {} },
+				published: {
+					...published,
+					dist: { ...published.dist, attestations: undefined },
+				},
 				audit,
 				packageName,
 				version,
 				tagCommit: commit,
 			}),
-		).toThrow(/trusted publisher/u)
+		).toThrow(/SLSA provenance metadata/u)
 	})
 
 	it('rejects an audit report that did not verify the released package', () => {

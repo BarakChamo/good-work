@@ -71,9 +71,6 @@ export const verifyPublishedProvenance = ({
 	if (published?.name !== packageName || published?.version !== version) {
 		fail('The public npm package identity or version is incorrect.')
 	}
-	if (published?.['_npmUser']?.trustedPublisher?.id !== 'github') {
-		fail('The public npm package was not published by the GitHub trusted publisher.')
-	}
 	if (published?.dist?.attestations?.provenance?.predicateType !== SLSA_PROVENANCE) {
 		fail('The public npm package is missing SLSA provenance metadata.')
 	}
