@@ -2,8 +2,7 @@ name: CI
 
 on:
   pull_request:
-  pull_request_target:
-    types: [opened, synchronize, reopened]
+  workflow_dispatch:
   push:
     branches: [main]
 
@@ -20,16 +19,9 @@ env:
 jobs:
   quality:
     name: Quality
-    if: >-
-      github.event_name != 'pull_request_target' ||
-      (github.actor == 'github-actions[bot]' &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.pull_request.head.ref == 'changeset-release/main')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
@@ -42,16 +34,9 @@ jobs:
 
   unit:
     name: Unit and contract tests
-    if: >-
-      github.event_name != 'pull_request_target' ||
-      (github.actor == 'github-actions[bot]' &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.pull_request.head.ref == 'changeset-release/main')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
@@ -60,16 +45,9 @@ jobs:
 
   integration:
     name: Git and Beads integration
-    if: >-
-      github.event_name != 'pull_request_target' ||
-      (github.actor == 'github-actions[bot]' &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.pull_request.head.ref == 'changeset-release/main')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
@@ -79,16 +57,9 @@ jobs:
 
   package:
     name: Packed consumer
-    if: >-
-      github.event_name != 'pull_request_target' ||
-      (github.actor == 'github-actions[bot]' &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.pull_request.head.ref == 'changeset-release/main')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
@@ -99,16 +70,9 @@ jobs:
 
   plugin:
     name: Plugin and skill
-    if: >-
-      github.event_name != 'pull_request_target' ||
-      (github.actor == 'github-actions[bot]' &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.pull_request.head.ref == 'changeset-release/main')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
@@ -119,11 +83,6 @@ jobs:
 
   portability:
     name: Packed smoke (${{ matrix.os }})
-    if: >-
-      github.event_name != 'pull_request_target' ||
-      (github.actor == 'github-actions[bot]' &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.pull_request.head.ref == 'changeset-release/main')
     strategy:
       fail-fast: false
       matrix:
@@ -131,8 +90,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}

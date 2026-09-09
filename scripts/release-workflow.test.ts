@@ -66,13 +66,16 @@ describe('release workflow', () => {
 	it('validates bot-authored Changesets PRs without a second human approval', async () => {
 		const ci = await readFile(resolve(root, '.github/workflows/ci.yml'), 'utf8')
 		const security = await readFile(resolve(root, '.github/workflows/security.yml'), 'utf8')
+		const releasePr = await readFile(resolve(root, '.github/workflows/release-pr.yml'), 'utf8')
 
 		for (const workflow of [ci, security]) {
-			expect(workflow).toContain('pull_request_target:')
-			expect(workflow).toContain("github.actor == 'github-actions[bot]'")
-			expect(workflow).toContain("github.event.pull_request.head.ref == 'changeset-release/main'")
-			expect(workflow).toContain('github.event.pull_request.head.sha')
+			expect(workflow).toContain('workflow_dispatch:')
 		}
-		expect(security).not.toContain('schedule:')
+		expect(releasePr).toContain('actions: write')
+		expect(releasePr).toContain("steps.changesets.outputs['has-changesets'] == 'true'")
+		expect(releasePr).toContain('gh workflow run ci.yml --ref changeset-release/main')
+		expect(releasePr).toContain('gh workflow run security.yml --ref changeset-release/main')
+		expect(security).toContain('base-ref: main')
+		expect(security).toContain('head-ref: changeset-release/main')
 	})
 })

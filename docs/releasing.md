@@ -34,9 +34,9 @@ changelog and synchronizes the package, schemas, plugin manifests, marketplace
 metadata, and bundled skill.
 
 Review the proposed version, changelog, generated assets, and green checks.
-Bot-authored Changesets pull requests use a narrowly guarded same-repository
-validation path, so their checks start automatically without an additional
-workflow approval.
+The trusted release-PR workflow dispatches CI and security validation directly
+on the exact Changesets branch, so bot-authored pull requests receive required
+checks without an additional workflow approval.
 
 ## Release
 
