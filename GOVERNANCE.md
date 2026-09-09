@@ -3,7 +3,7 @@
 Work is maintained in the open by repository maintainers.
 
 - Changes land through reviewed pull requests with required CI.
-- User-visible releases use Changesets and protected staged publication.
+- User-visible releases use Changesets and protected, tokenless OIDC publication.
 - Maintainers own security response, compatibility decisions, and release
   approval.
 - Significant scope changes require a public proposal before implementation.

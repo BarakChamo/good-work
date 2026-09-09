@@ -1,86 +1,69 @@
 # Maintainer release runbook
 
-Work uses Changesets for version/changelog preparation and npm staged publishing
-with OpenID Connect for publication. No npm write token belongs in GitHub.
+Work uses Changesets and one event-driven GitHub Actions workflow. npm
+publication uses OpenID Connect; no npm write token belongs in GitHub and normal
+releases require no local npm commands.
 
 ## One-time owner setup
 
-1. Confirm the public `BarakChamo/good-work` repository contains the clean import.
-2. Choose the npm organization that will own `@<organization>/work`.
-3. Run `bun run configure:identity -- <npm-organization>` and review every change.
-4. Enable branch protection, secret scanning, push protection, private
+1. Enable branch protection, secret scanning, push protection, private
    vulnerability reporting, and Actions pull-request creation.
-5. Install Changeset Bot.
-6. Add a second maintainer when available. If the repository later moves into an
-   organization, create a maintainer team and update CODEOWNERS accordingly.
-7. Create a protected `npm-stage` GitHub environment requiring maintainer review.
-8. Add at least one second GitHub and npm maintainer when available.
-9. After npm identity is configured, create the repository variable
-   `NPM_RELEASES_ENABLED=true`. Until then, the release-PR workflow stays
-   dormant while ordinary CI remains active.
+2. Install Changeset Bot and add a second GitHub/npm maintainer when available.
+3. Create a protected `npm-release` GitHub environment. Require maintainer
+   approval and restrict deployment to `main`.
+4. Configure npm trusted publishing for `@good-work/work` with:
+   - repository: `BarakChamo/good-work`;
+   - workflow: `release.yml`;
+   - environment: `npm-release`;
+   - permission: direct `npm publish`.
+5. Keep package publishing access set to require 2FA and disallow traditional
+   publishing tokens. Trusted publishing uses short-lived OIDC credentials and
+   continues to work without a token.
+6. Set the repository variable `NPM_RELEASES_ENABLED=true`.
 
-Staged publishing requires an existing npm package. After `bun run test:release`
-passes on the exact clean commit, build and inspect the bootstrap artifacts.
-The release gate explicitly installs the checksum-verified provider before its
-real-provider tests; dependency installation never performs that download:
-
-```sh
-RELEASE_VERSION=0.0.0 bun run scripts/build-release-artifacts.ts
-(cd dist && shasum -a 256 -c work-0.0.0.tgz.sha256)
-```
-
-Create the package once with interactive 2FA:
-
-```sh
-npm publish ./dist/work-0.0.0.tgz --access public --tag bootstrap --provenance=false
-```
-
-Publish version `0.0.0` only. Then configure the npm trusted publisher for the
-exact npm package, `BarakChamo/good-work` repository, `stage-release.yml`
-workflow, and `npm-stage`
-environment. Select stage-only permission, require 2FA, disallow publishing
-tokens, and revoke any temporary automation credentials.
+The initial bootstrap publication is complete and must not be repeated. The
+historical `bootstrap` dist-tag can be removed once through npm account
+authentication; it is not part of any future release.
 
 ## Changesets
 
-User-visible changes include one `.changeset/*.md` file. Merging such changes to
-`main` causes `release-pr.yml` to maintain a version PR. The version step runs
-Changesets and synchronizes plugin manifests, marketplace metadata, the bundled
-skill, and the immutable schema URL.
+Every user-visible CLI, schema, hook, skill, plugin, state, or compatibility
+change includes one `.changeset/*.md` file. Merging such changes to `main` causes
+`release-pr.yml` to maintain a release pull request. The version step updates the
+changelog and synchronizes the package, schemas, plugin manifests, marketplace
+metadata, and bundled skill.
 
-Review the version, changelog, generated assets, and green release gate before
-merging the release PR.
+Review the proposed version, changelog, generated assets, and green checks.
 
-## Stage a release
+## Release
 
-Dispatch `stage-release.yml` with the exact version after its release PR merges.
-The protected job:
+1. Merge the Changesets release pull request.
+2. Wait for the unprotected preparation job to run the complete release gate and
+   build the exact tarball, checksum, and CycloneDX SBOM.
+3. Approve the protected `npm-release` deployment in GitHub.
 
-1. confirms package identity and version;
-2. runs `bun run test:release` from a frozen install;
-3. packs and inspects the tarball;
-4. generates SHA-256 and CycloneDX SBOM artifacts;
-5. runs `npm stage publish` through OIDC;
-6. creates the exact `v<version>` tag and draft GitHub Release.
+The approved job then performs one continuous release transaction:
 
-Download and inspect the npm staged artifact, then approve it with npm 2FA.
+1. verifies the downloaded archive checksum;
+2. creates or verifies the immutable source tag and draft GitHub Release;
+3. publishes the exact tarball through npm trusted publishing;
+4. verifies registry signatures, SLSA provenance, package identity, source
+   commit, and release tag;
+5. publishes the GitHub Release.
 
-## Finalize
+The workflow reads the version from `package.json`; maintainers do not enter it
+again. It is triggered only by the release PR's version change and has no
+scheduled or periodic component.
 
-Dispatch `finalize-release.yml` with the same version. It verifies that npm
-verifies the registry signatures and attestations, then confirms the version,
-trusted-publisher identity, package digest, and signed provenance source commit
-match the tag before it
-publishes the existing draft GitHub Release.
+## Recovery
 
-After 0.1.0 is public, remove the `bootstrap` dist-tag.
+If the workflow fails before npm publication, fix the cause and rerun it. If npm
+publication succeeds but provenance verification or GitHub Release publication
+fails, use **Re-run jobs** on the original workflow run so recovery stays bound
+to the exact release commit. The recovery run sees that the version is already
+public, skips `npm publish`, re-verifies the immutable tag and package, and
+completes the existing GitHub Release. Manual dispatch from `main` remains a
+fallback only while `main` still names that exact release candidate.
 
-## Rejection and recovery
-
-If a staged release is rejected, reject it in npm, delete only its unpublished
-tag and draft release, fix the problem through a new changeset/version, and
-stage again. Never replace source underneath a public version or reuse its tag.
-
-The workflows intentionally cannot create the npm organization, reserve the
-package, change account 2FA, configure trusted publishing, approve npm staging,
-or alter branch protection. Those are owner-controlled operations.
+Never delete or replace a public version or move its source tag. Manual dispatch
+is a recovery entrypoint only; it is not part of the normal release path.
