@@ -175,8 +175,15 @@ direct children.
   or promoted to tracked work automatically.
 - `telemetry`: sanitized local command telemetry is enabled by default and never
   transmitted. Do not disable it unless the operator asks. Use `work telemetry
-show --limit <count>` for bounded review; `telemetry disable` persists a
-  local checkout opt-out until `telemetry enable` restores recording.
+  sessions --limit <count> --json` to index correlated command sessions. Use
+  `work telemetry show --session-id <known-id> --limit <count> --json`,
+  `--session-correlation <digest>`, and optional `--work-id <id>` for a bounded
+  sanitized timeline. Inspection is read-only and never exposes the supplied
+  raw identifiers. Work automatically uses `WORK_SESSION_ID`,
+  `CODEX_THREAD_ID`, or `CLAUDE_CODE_SESSION_ID` for commands without an
+  explicit session, with `CODEX_SESSION_ID` as a final fallback. These are Work
+  command events, not agent transcripts. `telemetry disable` persists a local
+  checkout opt-out until `telemetry enable` restores recording.
 - `hooks`: optional plugin hooks are advisory engineering context, not work
   authority. `work.json` is read only from the current Git worktree root.
   Before configured commands can run, inspect the file, confirm it is committed

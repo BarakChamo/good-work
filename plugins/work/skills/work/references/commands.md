@@ -17,7 +17,8 @@ agent-consumed commands and honor structured errors without fallback mutation.
 | Reconcile          | `bun run work reconcile <id> --actor <actor> [--role <role>] [--session <session>] --json`                                                   |
 | Reopen             | `bun run work reopen <id> --actor <actor> --reason <reason> --json`                                                                          |
 | Recovery export    | `bun run work export --json`                                                                                                                 |
-| Telemetry review   | `bun run work telemetry show --limit <count> --json`                                                                                         |
+| Telemetry sessions | `bun run work telemetry sessions --limit <count> --json`                                                                                     |
+| Telemetry review   | `bun run work telemetry show [--session-id <id> | --session-correlation <digest>] [--work-id <id>] --limit <count> --json`                   |
 | Hook setup         | `bun run work hooks init`, commit `work.json`, inspect it, then run `bun run work hooks trust`                                               |
 | Hook health        | `bun run work hooks status --json`                                                                                                           |
 
@@ -37,6 +38,12 @@ project across machines; the local checkout identity keeps separate clones
 isolated while linked worktrees share state. Existing pre-UID stores retain
 their legacy location during upgrade. An explicit `telemetry disable` persists
 the local repository opt-out until `telemetry enable` restores recording.
+Inspection commands are read-only. Use `telemetry sessions` to find an HMAC
+correlation, then `telemetry show` to inspect its sanitized Work-command
+timeline. A known raw session or work ID is hashed locally and never returned.
+`WORK_SESSION_ID`, `CODEX_THREAD_ID`, and `CLAUDE_CODE_SESSION_ID` automatically
+attribute commands that lack a lifecycle `--session`, with `CODEX_SESSION_ID` as
+a final fallback. This timeline is not an agent transcript.
 
 For a new worker, reuse an operator-supplied actor or generate one
 collision-resistant actor once per session, combining runtime, work ID, and a

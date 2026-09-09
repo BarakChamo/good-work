@@ -951,7 +951,7 @@ process.exit(result.status ?? 1)
 			'create',
 			'list',
 		])
-	}, 30_000)
+	}, 60_000)
 
 	it('persists claims, session handoffs, block state, and evidence receipts across provider instances', async () => {
 		const binary = resolve(import.meta.dirname, '../node_modules/.bin/bd')

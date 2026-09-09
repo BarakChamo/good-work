@@ -1005,12 +1005,28 @@ const telemetryToggleCommand = (action: 'enable' | 'disable', brief: string) =>
 	})
 
 const telemetryShowCommand = buildCommand<
-	CommonFlags & { readonly limit?: string },
+	CommonFlags & {
+		readonly limit?: string
+		readonly sessionId?: string
+		readonly sessionCorrelation?: string
+		readonly workId?: string
+	},
 	[],
 	WorkCliContext
 >({
 	async func(flags): Promise<void> {
-		await invoke(this, flags, 'telemetry', ['show'], options([['limit', flags.limit]]))
+		await invoke(
+			this,
+			flags,
+			'telemetry',
+			['show'],
+			options([
+				['limit', flags.limit],
+				['session-id', flags.sessionId],
+				['session-correlation', flags.sessionCorrelation],
+				['work-id', flags.workId],
+			]),
+		)
 	},
 	parameters: {
 		flags: {
@@ -1022,10 +1038,55 @@ const telemetryShowCommand = buildCommand<
 				brief: 'Maximum newest events to return',
 				placeholder: 'number',
 			},
+			sessionId: {
+				kind: 'parsed',
+				parse: parseText,
+				optional: true,
+				brief: 'Filter using a known local session ID',
+				placeholder: 'id',
+			},
+			sessionCorrelation: {
+				kind: 'parsed',
+				parse: parseText,
+				optional: true,
+				brief: 'Filter using a correlation from telemetry sessions',
+				placeholder: 'digest',
+			},
+			workId: {
+				kind: 'parsed',
+				parse: parseText,
+				optional: true,
+				brief: 'Filter using a known repository work ID',
+				placeholder: 'id',
+			},
 		},
 		positional: noPositionals,
 	},
 	docs: { brief: 'Review bounded sanitized local command telemetry' },
+})
+
+const telemetrySessionsCommand = buildCommand<
+	CommonFlags & { readonly limit?: string },
+	[],
+	WorkCliContext
+>({
+	async func(flags): Promise<void> {
+		await invoke(this, flags, 'telemetry', ['sessions'], options([['limit', flags.limit]]))
+	},
+	parameters: {
+		flags: {
+			...commonFlags,
+			limit: {
+				kind: 'parsed',
+				parse: parseText,
+				optional: true,
+				brief: 'Maximum newest session summaries to return',
+				placeholder: 'number',
+			},
+		},
+		positional: noPositionals,
+	},
+	docs: { brief: 'Index privacy-preserving local command sessions' },
 })
 
 const proposalRoutes = buildRouteMap({
@@ -1059,6 +1120,7 @@ const telemetryRoutes = buildRouteMap({
 		enable: telemetryToggleCommand('enable', 'Re-enable local sanitized command telemetry'),
 		disable: telemetryToggleCommand('disable', 'Persistently disable local command telemetry'),
 		show: telemetryShowCommand,
+		sessions: telemetrySessionsCommand,
 	},
 	docs: { brief: 'Control and inspect default-on local command telemetry' },
 })

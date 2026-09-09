@@ -177,7 +177,7 @@ and [Privacy](docs/privacy.md) for the complete contract.
 | `work skill install`                     | Install the canonical Codex and Claude skill.                     |
 | `work hooks`                             | Initialize, inspect, trust, and dispatch advisory hooks.          |
 | `work feedback`                          | Record explicit local product feedback.                           |
-| `work telemetry`                         | Review or disable sanitized local telemetry.                      |
+| `work telemetry`                         | Index sessions, inspect timelines, or disable local telemetry.    |
 
 Use `work --help` and `work <route> --help` for the generated reference. The
 maintained overview is in [CLI reference](docs/cli.md).

@@ -61,7 +61,8 @@ Telemetry is separate and opt-in. Do not enable or disable it unless the
 operator asks. When enabled, commands automatically append only sanitized
 route/outcome/duration, parser failure stage, keyed work/actor/role/session
 correlations, an optional HMAC run correlation from `WORK_CONTRACT_RUN_ID`, and
-a numeric context budget. Use `work telemetry show --limit 50` to inspect it;
+a numeric context budget. Use `work telemetry sessions --limit 20` to index
+sessions and `work telemetry show --limit 50` to inspect events;
 original identifiers, invalid flags/routes, free-form inputs, paths, error text,
 and command output must never appear there. An invalid run ID causes only a
 sanitized warning and never changes the command result.

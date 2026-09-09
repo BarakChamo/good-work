@@ -48,6 +48,7 @@ const TELEMETRY_FILE_MAX_BYTES = 5_000_000
 const TELEMETRY_EVENT_MAX_BYTES = 2000
 const TELEMETRY_EVENT_MAX_COUNT = 10_000
 const TELEMETRY_SHOW_MAX_EVENTS = 500
+const TELEMETRY_SESSION_MAX_COUNT = 500
 const TELEMETRY_CONFIG_PATH = '.work/telemetry/config.json'
 const TELEMETRY_EVENTS_PATH = '.work/telemetry/events.jsonl'
 const TELEMETRY_IGNORE_PATH = '.work/telemetry/.gitignore'
@@ -98,6 +99,7 @@ const TELEMETRY_COMMANDS = [
 	'telemetry.enable',
 	'telemetry.disable',
 	'telemetry.show',
+	'telemetry.sessions',
 	'hooks.init',
 	'hooks.inspect',
 	'hooks.trust',
@@ -210,6 +212,21 @@ export interface CommandTelemetryEvent {
 	readonly hookSkipReason?: 'runtime' | 'session_source' | 'changed_files' | 'unrecognized_edit'
 }
 
+/** @description Bounded aggregate for one privacy-preserving session correlation. */
+export interface CommandTelemetrySession {
+	readonly sessionCorrelation: string
+	readonly firstOccurredAt: string
+	readonly lastOccurredAt: string
+	readonly eventCount: number
+	readonly durationMs: number
+	readonly outcomes: {
+		readonly success: number
+		readonly attention: number
+		readonly failure: number
+	}
+	readonly commands: readonly { readonly command: string; readonly count: number }[]
+}
+
 interface TelemetryConfig {
 	readonly schemaVersion: 1
 	readonly enabled: boolean
@@ -228,7 +245,9 @@ const failure = <T>(
 	code:
 		| 'feedback_write_failed'
 		| 'invalid_feedback'
+		| 'invalid_telemetry_filter'
 		| 'invalid_telemetry_run_id'
+		| 'invalid_telemetry_session_id'
 		| 'telemetry_limit_exceeded'
 		| 'telemetry_read_failed'
 		| 'telemetry_write_failed',
@@ -695,19 +714,49 @@ const workIdFor = (invocation: WorkContractInvocation): string | undefined => {
 		: undefined
 }
 
+const telemetryCorrelation = (namespace: 'session' | 'work', value: string, salt: string): string =>
+	createHmac('sha256', salt).update(`${namespace}\0${value}`).digest('hex')
+
+const telemetryLookupId = (value: string | undefined): string | undefined => {
+	if (value === undefined) {
+		return undefined
+	}
+	return value.trim().length > 0 && Buffer.byteLength(value, 'utf8') <= 256 ? value : undefined
+}
+
+const correlateTelemetrySession = (
+	sessionId: string | undefined,
+	correlationSalt: string,
+): WorkResult<string | undefined> => {
+	if (sessionId === undefined) {
+		return { ok: true, value: undefined }
+	}
+	return telemetryLookupId(sessionId) === undefined
+		? failure(
+				'invalid_telemetry_session_id',
+				'Telemetry session ID must be between 1 and 256 UTF-8 bytes.',
+			)
+		: { ok: true, value: telemetryCorrelation('session', sessionId, correlationSalt) }
+}
+
 const toTelemetryEvent = (input: {
 	readonly invocation: WorkContractInvocation
 	readonly exitCode: number
 	readonly durationMs: number
 	readonly correlationSalt: string
 	readonly runId?: string
+	readonly sessionId?: string
 	readonly phases?: readonly CommandPhaseMeasurement[]
 }): WorkResult<CommandTelemetryEvent> => {
 	const contextMaxBytes = Number(input.invocation.options['max-bytes']?.at(-1))
 	const workId = workIdFor(input.invocation)
 	const actor = input.invocation.options.actor?.at(-1)
 	const role = input.invocation.options.role?.at(-1)
-	const sessionId = input.invocation.options.session?.at(-1)
+	const sessionId = input.invocation.options.session?.at(-1) ?? input.sessionId
+	const sessionCorrelation = correlateTelemetrySession(sessionId, input.correlationSalt)
+	if (!sessionCorrelation.ok) {
+		return sessionCorrelation
+	}
 	const correlate = (namespace: string, value: string): string =>
 		createHmac('sha256', input.correlationSalt).update(`${namespace}\0${value}`).digest('hex')
 	let outcome: CommandTelemetryEvent['outcome'] = 'failure'
@@ -736,7 +785,9 @@ const toTelemetryEvent = (input: {
 			...(workId === undefined ? {} : { workCorrelation: correlate('work', workId) }),
 			...(actor === undefined ? {} : { actorCorrelation: correlate('actor', actor) }),
 			...(role === undefined ? {} : { roleCorrelation: correlate('role', role) }),
-			...(sessionId === undefined ? {} : { sessionCorrelation: correlate('session', sessionId) }),
+			...(sessionCorrelation.value === undefined
+				? {}
+				: { sessionCorrelation: sessionCorrelation.value }),
 			...(Number.isSafeInteger(contextMaxBytes) && contextMaxBytes > 0 ? { contextMaxBytes } : {}),
 			...(runCorrelation.value === undefined ? {} : { runCorrelation: runCorrelation.value }),
 			...(phases.length === 0
@@ -931,6 +982,54 @@ const parseTelemetryEvents = (source: string): WorkResult<readonly CommandTeleme
 	return { ok: true, value: events }
 }
 
+const resolveTelemetryFilters = (input: {
+	readonly config?: TelemetryConfig
+	readonly sessionId?: string
+	readonly sessionCorrelation?: string
+	readonly workId?: string
+}): WorkResult<{ readonly sessionCorrelation?: string; readonly workCorrelation?: string }> => {
+	if (input.sessionId !== undefined && input.sessionCorrelation !== undefined) {
+		return failure(
+			'invalid_telemetry_filter',
+			'Use either a session ID or a session correlation, not both.',
+		)
+	}
+	const sessionId = telemetryLookupId(input.sessionId)
+	const workId = telemetryLookupId(input.workId)
+	if (
+		(input.sessionId !== undefined && sessionId === undefined) ||
+		(input.workId !== undefined && workId === undefined) ||
+		(input.sessionCorrelation !== undefined && !/^[a-f0-9]{64}$/.test(input.sessionCorrelation))
+	) {
+		return failure('invalid_telemetry_filter', 'Telemetry filters are invalid.')
+	}
+	if ((sessionId !== undefined || workId !== undefined) && input.config === undefined) {
+		return failure(
+			'invalid_telemetry_filter',
+			'Telemetry lookup IDs cannot be resolved because local correlation state is unavailable.',
+		)
+	}
+	return {
+		ok: true,
+		value: {
+			...(input.sessionCorrelation === undefined
+				? sessionId === undefined || input.config === undefined
+					? {}
+					: {
+							sessionCorrelation: telemetryCorrelation(
+								'session',
+								sessionId,
+								input.config.correlationSalt,
+							),
+						}
+				: { sessionCorrelation: input.sessionCorrelation }),
+			...(workId === undefined || input.config === undefined
+				? {}
+				: { workCorrelation: telemetryCorrelation('work', workId, input.config.correlationSalt) }),
+		},
+	}
+}
+
 /** @description Appends one allowlisted command envelope unless local telemetry is explicitly disabled. */
 export const recordCommandTelemetry = async (input: {
 	readonly root: string
@@ -938,6 +1037,7 @@ export const recordCommandTelemetry = async (input: {
 	readonly exitCode: number
 	readonly durationMs: number
 	readonly runId?: string
+	readonly sessionId?: string
 	readonly phases?: readonly CommandPhaseMeasurement[]
 }): Promise<WorkResult<{ readonly recorded: boolean }>> =>
 	appendTelemetryEvent({
@@ -953,6 +1053,7 @@ export const recordCliFailureTelemetry = async (input: {
 	readonly exitCode: number
 	readonly durationMs: number
 	readonly runId?: string
+	readonly sessionId?: string
 }): Promise<WorkResult<{ readonly recorded: boolean }>> =>
 	appendTelemetryEvent({
 		root: input.root,
@@ -960,6 +1061,10 @@ export const recordCliFailureTelemetry = async (input: {
 			const runCorrelation = correlateRunId(input.runId, correlationSalt)
 			if (!runCorrelation.ok) {
 				return runCorrelation
+			}
+			const sessionCorrelation = correlateTelemetrySession(input.sessionId, correlationSalt)
+			if (!sessionCorrelation.ok) {
+				return sessionCorrelation
 			}
 			return {
 				ok: true,
@@ -972,6 +1077,9 @@ export const recordCliFailureTelemetry = async (input: {
 					exitCode: input.exitCode,
 					durationMs: Math.max(0, Math.round(input.durationMs)),
 					failureStage: input.failureStage,
+					...(sessionCorrelation.value === undefined
+						? {}
+						: { sessionCorrelation: sessionCorrelation.value }),
 					...(runCorrelation.value === undefined ? {} : { runCorrelation: runCorrelation.value }),
 				},
 			}
@@ -997,40 +1105,57 @@ export const recordHookTelemetry = async (input: {
 	readonly outputMode: 'silent' | 'passthrough' | 'summarize'
 	readonly skipReason?: 'runtime' | 'session_source' | 'changed_files' | 'unrecognized_edit'
 	readonly maxWaitMs?: number
+	readonly sessionId?: string
 }): Promise<WorkResult<{ readonly recorded: boolean }>> =>
 	appendTelemetryEvent({
 		root: input.root,
 		...(input.maxWaitMs === undefined ? {} : { maxLockWaitMs: input.maxWaitMs }),
-		build: (correlationSalt) => ({
-			ok: true,
-			value: {
-				schemaVersion: 1,
-				eventId: randomUUID(),
-				occurredAt: new Date().toISOString(),
-				command: 'hooks.dispatch',
-				outcome: hookTelemetryOutcome(input.outcome),
-				exitCode: input.outcome === 'success' || input.outcome === 'skipped' ? 0 : 1,
-				durationMs: Math.max(0, Math.round(input.durationMs)),
-				hookEvent: input.event,
-				hookEntryCorrelation: createHmac('sha256', Buffer.from(correlationSalt, 'hex'))
-					.update(input.entryId)
-					.digest('hex'),
-				hookOutcome: input.outcome,
-				hookOutputMode: input.outputMode,
-				...(input.skipReason === undefined ? {} : { hookSkipReason: input.skipReason }),
-			},
-		}),
+		build: (correlationSalt) => {
+			const sessionCorrelation = correlateTelemetrySession(input.sessionId, correlationSalt)
+			if (!sessionCorrelation.ok) {
+				return sessionCorrelation
+			}
+			return {
+				ok: true,
+				value: {
+					schemaVersion: 1,
+					eventId: randomUUID(),
+					occurredAt: new Date().toISOString(),
+					command: 'hooks.dispatch',
+					outcome: hookTelemetryOutcome(input.outcome),
+					exitCode: input.outcome === 'success' || input.outcome === 'skipped' ? 0 : 1,
+					durationMs: Math.max(0, Math.round(input.durationMs)),
+					hookEvent: input.event,
+					hookEntryCorrelation: createHmac('sha256', Buffer.from(correlationSalt, 'hex'))
+						.update(input.entryId)
+						.digest('hex'),
+					...(sessionCorrelation.value === undefined
+						? {}
+						: { sessionCorrelation: sessionCorrelation.value }),
+					hookOutcome: input.outcome,
+					hookOutputMode: input.outputMode,
+					...(input.skipReason === undefined ? {} : { hookSkipReason: input.skipReason }),
+				},
+			}
+		},
 	})
 
 /** @description Reads a bounded newest-first view of sanitized local command telemetry. */
 export const showCommandTelemetry = async (input: {
 	readonly root: string
 	readonly limit: number
+	readonly sessionId?: string
+	readonly sessionCorrelation?: string
+	readonly workId?: string
 }): Promise<
 	WorkResult<{
 		readonly enabled: boolean
 		readonly path: string
 		readonly events: readonly CommandTelemetryEvent[]
+		readonly filters?: {
+			readonly sessionCorrelation?: string
+			readonly workCorrelation?: string
+		}
 	}>
 > => {
 	if (
@@ -1047,6 +1172,17 @@ export const showCommandTelemetry = async (input: {
 	if (!config.ok) {
 		return config
 	}
+	const filters = resolveTelemetryFilters({
+		...(config.value === undefined ? {} : { config: config.value }),
+		...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
+		...(input.sessionCorrelation === undefined
+			? {}
+			: { sessionCorrelation: input.sessionCorrelation }),
+		...(input.workId === undefined ? {} : { workId: input.workId }),
+	})
+	if (!filters.ok) {
+		return filters
+	}
 	const target = await telemetryPath(input.root, TELEMETRY_EVENTS_PATH, false)
 	if (!target.ok) {
 		return target
@@ -1059,12 +1195,120 @@ export const showCommandTelemetry = async (input: {
 	if (!events.ok) {
 		return events
 	}
+	const filtered = events.value.filter(
+		(event) =>
+			(filters.value.sessionCorrelation === undefined ||
+				event.sessionCorrelation === filters.value.sessionCorrelation) &&
+			(filters.value.workCorrelation === undefined ||
+				event.workCorrelation === filters.value.workCorrelation),
+	)
 	return {
 		ok: true,
 		value: {
 			enabled: config.value?.enabled ?? true,
 			path: TELEMETRY_EVENTS_PATH,
-			events: events.value.slice(-input.limit).toReversed(),
+			events: filtered.slice(-input.limit).toReversed(),
+			...(Object.keys(filters.value).length === 0 ? {} : { filters: filters.value }),
+		},
+	}
+}
+
+/** @description Lists bounded newest-first aggregates for sessions present in local telemetry. */
+export const listCommandTelemetrySessions = async (input: {
+	readonly root: string
+	readonly limit: number
+}): Promise<
+	WorkResult<{
+		readonly enabled: boolean
+		readonly path: string
+		readonly unattributedEventCount: number
+		readonly sessions: readonly CommandTelemetrySession[]
+	}>
+> => {
+	if (
+		!Number.isSafeInteger(input.limit) ||
+		input.limit < 1 ||
+		input.limit > TELEMETRY_SESSION_MAX_COUNT
+	) {
+		return failure(
+			'telemetry_limit_exceeded',
+			`Telemetry session limit must be between 1 and ${TELEMETRY_SESSION_MAX_COUNT}.`,
+		)
+	}
+	const config = await readTelemetryConfig(input.root)
+	if (!config.ok) {
+		return config
+	}
+	const target = await telemetryPath(input.root, TELEMETRY_EVENTS_PATH, false)
+	if (!target.ok) {
+		return target
+	}
+	const source = await readTelemetryEventSource(target.value)
+	if (!source.ok) {
+		return source
+	}
+	const parsed = parseTelemetryEvents(source.value)
+	if (!parsed.ok) {
+		return parsed
+	}
+	interface SessionAccumulator {
+		firstOccurredAt: string
+		lastOccurredAt: string
+		lastIndex: number
+		eventCount: number
+		durationMs: number
+		outcomes: { success: number; attention: number; failure: number }
+		commands: Map<string, number>
+	}
+	const sessions = new Map<string, SessionAccumulator>()
+	let unattributedEventCount = 0
+	for (const [index, event] of parsed.value.entries()) {
+		if (event.sessionCorrelation === undefined) {
+			unattributedEventCount += 1
+			continue
+		}
+		const current = sessions.get(event.sessionCorrelation) ?? {
+			firstOccurredAt: event.occurredAt,
+			lastOccurredAt: event.occurredAt,
+			lastIndex: index,
+			eventCount: 0,
+			durationMs: 0,
+			outcomes: { success: 0, attention: 0, failure: 0 },
+			commands: new Map<string, number>(),
+		}
+		current.lastOccurredAt = event.occurredAt
+		current.lastIndex = index
+		current.eventCount += 1
+		current.durationMs += event.durationMs
+		current.outcomes[event.outcome] += 1
+		current.commands.set(event.command, (current.commands.get(event.command) ?? 0) + 1)
+		sessions.set(event.sessionCorrelation, current)
+	}
+	const summaries = [...sessions.entries()]
+		.toSorted((left, right) => right[1].lastIndex - left[1].lastIndex)
+		.slice(0, input.limit)
+		.map(
+			([sessionCorrelation, session]): CommandTelemetrySession => ({
+				sessionCorrelation,
+				firstOccurredAt: session.firstOccurredAt,
+				lastOccurredAt: session.lastOccurredAt,
+				eventCount: session.eventCount,
+				durationMs: session.durationMs,
+				outcomes: session.outcomes,
+				commands: [...session.commands.entries()]
+					.map(([command, count]) => ({ command, count }))
+					.toSorted(
+						(left, right) => right.count - left.count || left.command.localeCompare(right.command),
+					),
+			}),
+		)
+	return {
+		ok: true,
+		value: {
+			enabled: config.value?.enabled ?? true,
+			path: TELEMETRY_EVENTS_PATH,
+			unattributedEventCount,
+			sessions: summaries,
 		},
 	}
 }
