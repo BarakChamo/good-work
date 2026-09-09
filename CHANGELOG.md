@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0
+
+### Minor Changes
+
+- [#23](https://github.com/BarakChamo/good-work/pull/23) [`979aff2`](https://github.com/BarakChamo/good-work/commit/979aff26818277e9605cfe2d21c9d8bb52f21b47) Thanks [@BarakChamo](https://github.com/BarakChamo)! - Version review-status responses as schema v2, expose partially persisted or
+  superseded review decisions as `incomplete`, preserve the surviving decision
+  metadata, and return idempotent evidence-commit plus mandatory status-verification
+  actions. The generated skills document interruption recovery for agents.
+
 ## 0.4.0
 
 ### Minor Changes
