@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0
+
+### Minor Changes
+
+- [#16](https://github.com/BarakChamo/good-work/pull/16) [`f8459fd`](https://github.com/BarakChamo/good-work/commit/f8459fd9d39036d213a3a1254a42ca2924e957a1) Thanks [@BarakChamo](https://github.com/BarakChamo)! - Add privacy-preserving session indexes and session/work filters for local command telemetry. Automatically correlate commands with supported Codex and Claude session environments while keeping inspection read-only and excluding agent transcripts.
+
 ## 0.2.0
 
 ### Minor Changes
