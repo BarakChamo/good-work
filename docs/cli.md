@@ -50,13 +50,32 @@ ledger. Follow returned `nextActions` instead of assuming a lifecycle.
 
 ## Coordination and diagnostics
 
-| Command                  | Use                                       |
-| ------------------------ | ----------------------------------------- |
-| `work integration status | acquire                                   | release | recover`                                        | Coordinate participating local target writers. |
-| `work feedback`          | Record bounded explicit product feedback. |
-| `work telemetry show     | disable                                   | enable` | Review or opt out of sanitized local telemetry. |
-| `work hooks init         | inspect                                   | trust   | untrust                                         | status                                         | dispatch` | Operate advisory engineering hooks. |
-| `work skill install`     | Install the canonical agent skill.        |
+| Command                                       | Use                                                |
+| --------------------------------------------- | -------------------------------------------------- |
+| `work integration status`                     | Inspect the participating local integration mutex. |
+| `work integration acquire / release / recover` | Coordinate participating local target writers.     |
+| `work feedback`                               | Record bounded explicit product feedback.          |
+| `work telemetry sessions`                     | Index privacy-preserving command sessions.          |
+| `work telemetry show`                         | Review all or filter sanitized command events.      |
+| `work telemetry disable / enable`             | Opt out of or restore local telemetry.               |
+| `work hooks init / inspect / trust / untrust`  | Configure and authorize advisory hooks.              |
+| `work hooks status / dispatch`                | Diagnose or invoke the reviewed hook bridge.         |
+| `work skill install`                          | Install the canonical agent skill.                  |
+
+Inspect one agent session or workstream without exposing its raw identifier:
+
+```sh
+work telemetry sessions --limit 20 --json
+work telemetry show --session-id "$CODEX_THREAD_ID" --limit 100 --json
+work telemetry show --work-id ISSUE-123 --limit 100 --json
+work telemetry show --session-correlation <digest-from-sessions> --json
+```
+
+Inspection commands do not append telemetry events. `WORK_SESSION_ID`,
+`CODEX_THREAD_ID`, and `CLAUDE_CODE_SESSION_ID` automatically correlate commands
+that do not already carry `--session`; `CODEX_SESSION_ID` is a final Codex
+fallback. `WORK_SESSION_ID` has highest precedence and an explicit command
+session has priority over every environment value.
 
 The CLI never runs a check, launches an agent, changes Git, opens a pull request,
 merges, creates isolation, or removes a worktree.

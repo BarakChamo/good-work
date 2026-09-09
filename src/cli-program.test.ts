@@ -442,7 +442,24 @@ describe('stricli work-contract program', () => {
 		).resolves.toBe(0)
 		await expect(
 			runWorkContractProgram({
-				args: ['telemetry', 'show', '--limit', '20', '--json'],
+				args: [
+					'telemetry',
+					'show',
+					'--limit',
+					'20',
+					'--session-id',
+					'session-1',
+					'--work-id',
+					'ISSUE-1',
+					'--json',
+				],
+				io: { stdout: (): void => undefined, stderr: (): void => undefined },
+				execute,
+			}),
+		).resolves.toBe(0)
+		await expect(
+			runWorkContractProgram({
+				args: ['telemetry', 'sessions', '--limit', '5', '--json'],
 				io: { stdout: (): void => undefined, stderr: (): void => undefined },
 				execute,
 			}),
@@ -460,7 +477,17 @@ describe('stricli work-contract program', () => {
 			{
 				command: 'telemetry',
 				positionals: ['show'],
-				options: { limit: ['20'] },
+				options: {
+					limit: ['20'],
+					'session-id': ['session-1'],
+					'work-id': ['ISSUE-1'],
+				},
+				json: true,
+			},
+			{
+				command: 'telemetry',
+				positionals: ['sessions'],
+				options: { limit: ['5'] },
 				json: true,
 			},
 		])

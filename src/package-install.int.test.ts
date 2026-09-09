@@ -256,6 +256,32 @@ const verifyDogfoodCommands = async (binary: string, consumerRoot: string) => {
 	expect(shown.stdout).toContain('"command":"feedback"')
 	expect(shown.stdout).toMatch(/"sessionCorrelation":"[a-f0-9]{64}"/)
 	expect(shown.stdout).not.toContain('package-eval')
+	const sessions = execute(
+		binary,
+		['--json', 'telemetry', 'sessions', '--limit', '10'],
+		consumerRoot,
+	)
+	expect(sessions.status, sessions.stderr).toBe(0)
+	expect(sessions.stdout).toContain('"eventCount":1')
+	expect(sessions.stdout).toContain('"command":"feedback"')
+	expect(sessions.stdout).not.toContain('package-eval')
+	const sessionCorrelation = sessions.stdout.match(/"sessionCorrelation":"([a-f0-9]{64})"/)?.[1]
+	expect(sessionCorrelation).toBeTypeOf('string')
+	const filteredBySession = execute(
+		binary,
+		['--json', 'telemetry', 'show', '--session-id', 'package-eval', '--limit', '10'],
+		consumerRoot,
+	)
+	expect(filteredBySession.status, filteredBySession.stderr).toBe(0)
+	expect(filteredBySession.stdout).toContain('"command":"feedback"')
+	expect(filteredBySession.stdout).not.toContain('package-eval')
+	const filteredByCorrelation = execute(
+		binary,
+		['--json', 'telemetry', 'show', '--session-correlation', sessionCorrelation ?? ''],
+		consumerRoot,
+	)
+	expect(filteredByCorrelation.status, filteredByCorrelation.stderr).toBe(0)
+	expect(filteredByCorrelation.stdout).toContain('"command":"feedback"')
 	const telemetry = await readFile(join(coordinationRoot, '.work/telemetry/events.jsonl'), 'utf8')
 	expect(telemetry).not.toContain('installed-secret-not-for-telemetry')
 	const parserFailure = execute(

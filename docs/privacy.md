@@ -10,12 +10,28 @@ hook payloads, hook command output, or secrets.
 
 ```sh
 work telemetry show --limit 20
+work telemetry sessions --limit 20
+work telemetry show --session-id <known-local-session-id> --limit 100
+work telemetry show --work-id ISSUE-123 --limit 100
 work telemetry disable
 work telemetry enable
 ```
 
-The opt-out persists for the local checkout. `DO_NOT_TRACK=1` also suppresses
-recording for the current process.
+`telemetry sessions` is a newest-first index of HMAC session correlations,
+event/outcome counts, command counts, and total CLI duration. Pass a correlation
+back through `telemetry show --session-correlation` or provide a known local
+session/work ID; Work hashes lookup values locally and never prints or stores
+them as part of inspection. Filters can be combined for one workstream within a
+session. Telemetry inspection itself is read-only and does not add an event.
+
+Work correlates commands automatically when `WORK_SESSION_ID`,
+`CODEX_THREAD_ID`, or `CLAUDE_CODE_SESSION_ID` is available, with
+`CODEX_SESSION_ID` as the final fallback. A command's explicit `--session` wins.
+These values are bounded and HMAC-hashed before persistence. Work does not read
+or retain the agent transcript; a "session" view is only a timeline of sanitized
+Work CLI and configured-hook events.
+
+The opt-out persists for the local checkout.
 
 `work feedback` stores a bounded explicit report in the same local coordination
 area. Feedback is never promoted to a Git issue, uploaded, or combined with

@@ -40,6 +40,7 @@ import {
 } from './integration-mutex'
 import { INPUT_LIMITS, readBoundedContainedUtf8, readBoundedUtf8, writeUtf8NoFollow } from './files'
 import {
+	listCommandTelemetrySessions,
 	recordCliFailureTelemetry,
 	recordCommandTelemetry,
 	recordHookTelemetry,
@@ -69,6 +70,13 @@ import type { WorkContractInvocation } from './cli-program'
 
 const option = (parsed: WorkContractInvocation, name: string): string | undefined =>
 	parsed.options[name]?.at(-1)
+
+const telemetrySessionId = (parsed?: WorkContractInvocation): string | undefined =>
+	parsed?.options.session?.at(-1) ??
+	processEnvironment.WORK_SESSION_ID ??
+	processEnvironment.CODEX_THREAD_ID ??
+	processEnvironment.CLAUDE_CODE_SESSION_ID ??
+	processEnvironment.CODEX_SESSION_ID
 
 const pluginArtifactPresent = async (): Promise<boolean> => {
 	if (
@@ -754,14 +762,28 @@ const executeWorkContractInvocation = async (
 				)
 			}
 			if (action === 'show') {
+				const sessionId = option(parsed, 'session-id')
+				const sessionCorrelation = option(parsed, 'session-correlation')
+				const workId = option(parsed, 'work-id')
 				return emit(
 					await showCommandTelemetry({
 						root: coordinationRoot.value,
 						limit: parsePositive(option(parsed, 'limit'), 50),
+						...(sessionId === undefined ? {} : { sessionId }),
+						...(sessionCorrelation === undefined ? {} : { sessionCorrelation }),
+						...(workId === undefined ? {} : { workId }),
 					}),
 				)
 			}
-			throw new Error('Telemetry action must be enable, disable, or show.')
+			if (action === 'sessions') {
+				return emit(
+					await listCommandTelemetrySessions({
+						root: coordinationRoot.value,
+						limit: parsePositive(option(parsed, 'limit'), 20),
+					}),
+				)
+			}
+			throw new Error('Telemetry action must be enable, disable, show, or sessions.')
 		}
 		if (parsed.command === 'hooks') {
 			const action = positional(parsed, 0, 'hooks action')
@@ -813,6 +835,7 @@ const executeWorkContractInvocation = async (
 				if (runtime !== 'codex' && runtime !== 'claude') {
 					throw new Error('Invalid hook runtime.')
 				}
+				const ambientSessionId = telemetrySessionId(parsed)
 				const dispatched = await dispatchWorkHooks({
 					cwd: parsed.root,
 					coordinationRoot: coordinationRoot.value,
@@ -828,6 +851,7 @@ const executeWorkContractInvocation = async (
 							outputMode: event.outputMode,
 							...(event.skipReason === undefined ? {} : { skipReason: event.skipReason }),
 							...(event.maxWaitMs === undefined ? {} : { maxWaitMs: event.maxWaitMs }),
+							...(ambientSessionId === undefined ? {} : { sessionId: ambientSessionId }),
 						})
 						if (!recorded.ok) {
 							output.stderr(renderTelemetryWarning({ json: false, error: recorded.error }))
@@ -1883,7 +1907,10 @@ export const runWorkContractCli = async (args: readonly string[], io?: CliIo): P
 			executeWorkContractInvocation(invocation, invocationOutput),
 		)
 		const exitCode = profiled.value
-		if (invocation.command === 'telemetry' && exitCode !== 0) {
+		if (
+			invocation.command === 'telemetry' &&
+			(exitCode !== 0 || ['show', 'sessions'].includes(invocation.positionals[0] ?? ''))
+		) {
 			return exitCode
 		}
 		if (invocation.command === 'hooks' && invocation.positionals[0] === 'dispatch') {
@@ -1896,6 +1923,7 @@ export const runWorkContractCli = async (args: readonly string[], io?: CliIo): P
 			)
 			return exitCode
 		}
+		const ambientSessionId = telemetrySessionId(invocation)
 		const telemetry = await recordCommandTelemetry({
 			root: coordinationRoot.value,
 			invocation,
@@ -1905,6 +1933,7 @@ export const runWorkContractCli = async (args: readonly string[], io?: CliIo): P
 			...(processEnvironment.WORK_CONTRACT_RUN_ID === undefined
 				? {}
 				: { runId: processEnvironment.WORK_CONTRACT_RUN_ID }),
+			...(ambientSessionId === undefined ? {} : { sessionId: ambientSessionId }),
 		})
 		if (!telemetry.ok) {
 			invocationOutput.stderr(
@@ -1925,12 +1954,14 @@ export const runWorkContractCli = async (args: readonly string[], io?: CliIo): P
 				)
 				return
 			}
+			const ambientSessionId = telemetrySessionId()
 			const telemetry = await recordCliFailureTelemetry({
 				...failure,
 				root: coordinationRoot.value,
 				...(processEnvironment.WORK_CONTRACT_RUN_ID === undefined
 					? {}
 					: { runId: processEnvironment.WORK_CONTRACT_RUN_ID }),
+				...(ambientSessionId === undefined ? {} : { sessionId: ambientSessionId }),
 			})
 			if (!telemetry.ok) {
 				output.stderr(

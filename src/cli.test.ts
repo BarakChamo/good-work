@@ -469,6 +469,220 @@ describe('work-contract CLI', () => {
 		}
 	})
 
+	it('indexes sessions and filters sanitized telemetry by raw local identifiers', async () => {
+		const root = await mkdtemp(resolve(tmpdir(), 'work-contract-telemetry-review-'))
+		const invoke = async (args: readonly string[]) => {
+			const stdout: string[] = []
+			const stderr: string[] = []
+			const status = await runWorkContractCli(['--root', root, '--json', ...args], {
+				stdout: (value): void => void stdout.push(value),
+				stderr: (value): void => void stderr.push(value),
+			})
+			return { status, stdout, stderr }
+		}
+		try {
+			for (const [session, workId, kind] of [
+				['session-a', 'ISSUE-1', 'idea'],
+				['session-a', 'ISSUE-1', 'docs'],
+				['session-b', 'ISSUE-2', 'bug'],
+			] as const) {
+				const recorded = await invoke([
+					'feedback',
+					'--kind',
+					kind,
+					'--message',
+					`private-${session}-${workId}`,
+					'--session',
+					session,
+					'--work-id',
+					workId,
+				])
+				expect(recorded.status, recorded.stderr.join('\n')).toBe(0)
+			}
+
+			const indexed = await invoke(['telemetry', 'sessions', '--limit', '10'])
+			expect(indexed.status, indexed.stderr.join('\n')).toBe(0)
+			const indexValue = recordField(parseJsonRecord(indexed.stdout[0] ?? ''), 'value')
+			expect(indexValue.unattributedEventCount).toBe(0)
+			expect(indexValue.sessions).toMatchObject([
+				{
+					eventCount: 1,
+					outcomes: { success: 1, attention: 0, failure: 0 },
+					commands: [{ command: 'feedback', count: 1 }],
+				},
+				{
+					eventCount: 2,
+					outcomes: { success: 2, attention: 0, failure: 0 },
+					commands: [{ command: 'feedback', count: 2 }],
+				},
+			])
+			const sessions = indexValue.sessions
+			if (!Array.isArray(sessions)) {
+				throw new TypeError('Expected telemetry session summaries.')
+			}
+			const sessionA = sessions.find((value) => isRecord(value) && value.eventCount === 2)
+			if (!isRecord(sessionA) || typeof sessionA.sessionCorrelation !== 'string') {
+				throw new TypeError('Expected session-a correlation.')
+			}
+
+			const bySessionId = await invoke([
+				'telemetry',
+				'show',
+				'--session-id',
+				'session-a',
+				'--limit',
+				'10',
+			])
+			expect(bySessionId.status, bySessionId.stderr.join('\n')).toBe(0)
+			const bySessionValue = recordField(parseJsonRecord(bySessionId.stdout[0] ?? ''), 'value')
+			expect(bySessionValue.events).toHaveLength(2)
+			expect(bySessionValue.filters).toStrictEqual({
+				sessionCorrelation: sessionA.sessionCorrelation,
+			})
+
+			const byCorrelation = await invoke([
+				'telemetry',
+				'show',
+				'--session-correlation',
+				sessionA.sessionCorrelation,
+			])
+			expect(byCorrelation.status, byCorrelation.stderr.join('\n')).toBe(0)
+			expect(
+				recordField(parseJsonRecord(byCorrelation.stdout[0] ?? ''), 'value').events,
+			).toHaveLength(2)
+
+			const byWork = await invoke(['telemetry', 'show', '--work-id', 'ISSUE-2'])
+			expect(byWork.status, byWork.stderr.join('\n')).toBe(0)
+			const byWorkValue = recordField(parseJsonRecord(byWork.stdout[0] ?? ''), 'value')
+			expect(byWorkValue.events).toHaveLength(1)
+			expect(JSON.stringify(byWorkValue)).not.toContain('ISSUE-2')
+			expect(JSON.stringify(byWorkValue)).not.toContain('session-b')
+
+			const invalid = await invoke([
+				'telemetry',
+				'show',
+				'--session-id',
+				'private-session',
+				'--session-correlation',
+				'not-a-correlation',
+			])
+			expect(invalid.status).toBe(1)
+			const invalidOutput = [...invalid.stdout, ...invalid.stderr].join('\n')
+			expect(invalidOutput).toContain('invalid_telemetry_filter')
+			expect(invalidOutput).not.toContain('private-session')
+			expect(invalidOutput).not.toContain('not-a-correlation')
+		} finally {
+			await rm(root, { force: true, recursive: true })
+		}
+	})
+
+	it('attributes every command to an explicit or runtime-provided local session', async () => {
+		const root = await mkdtemp(resolve(tmpdir(), 'work-contract-ambient-session-'))
+		const priorWorkSession = processEnvironment.WORK_SESSION_ID
+		const priorCodexThread = processEnvironment.CODEX_THREAD_ID
+		const priorCodexSession = processEnvironment.CODEX_SESSION_ID
+		const priorClaudeSession = processEnvironment.CLAUDE_CODE_SESSION_ID
+		const invoke = async (args: readonly string[]) => {
+			const stdout: string[] = []
+			const stderr: string[] = []
+			const status = await runWorkContractCli(['--root', root, '--json', ...args], {
+				stdout: (value): void => void stdout.push(value),
+				stderr: (value): void => void stderr.push(value),
+			})
+			return { status, stdout, stderr }
+		}
+		try {
+			processEnvironment.WORK_SESSION_ID = 'ambient-session'
+			processEnvironment.CODEX_THREAD_ID = 'inherited-codex-thread'
+			processEnvironment.CODEX_SESSION_ID = 'inherited-codex-session'
+			processEnvironment.CLAUDE_CODE_SESSION_ID = 'inherited-claude-session'
+			expect(
+				(
+					await invoke([
+						'feedback',
+						'--kind',
+						'idea',
+						'--message',
+						'ambient attribution without raw content',
+					])
+				).status,
+			).toBe(0)
+			expect((await invoke(['complete', '--unknown-private-flag'])).status).toBe(2)
+
+			const shown = await invoke([
+				'telemetry',
+				'show',
+				'--session-id',
+				'ambient-session',
+				'--limit',
+				'10',
+			])
+			expect(shown.status, shown.stderr.join('\n')).toBe(0)
+			const shownValue = recordField(parseJsonRecord(shown.stdout[0] ?? ''), 'value')
+			expect(shownValue.events).toMatchObject([
+				{ command: 'complete', failureStage: 'arguments' },
+				{ command: 'feedback', outcome: 'success' },
+			])
+			const serialized = JSON.stringify(shownValue)
+			expect(serialized).not.toContain('ambient-session')
+			expect(serialized).not.toContain('inherited-codex')
+			expect(serialized).not.toContain('inherited-claude')
+			expect(serialized).not.toContain('unknown-private-flag')
+
+			delete processEnvironment.WORK_SESSION_ID
+			expect(
+				(await invoke(['feedback', '--kind', 'idea', '--message', 'codex runtime attribution']))
+					.status,
+			).toBe(0)
+			expect(
+				recordField(
+					parseJsonRecord(
+						(await invoke(['telemetry', 'show', '--session-id', 'inherited-codex-thread']))
+							.stdout[0] ?? '',
+					),
+					'value',
+				).events,
+			).toHaveLength(1)
+
+			delete processEnvironment.CODEX_THREAD_ID
+			expect(
+				(await invoke(['feedback', '--kind', 'idea', '--message', 'claude runtime attribution']))
+					.status,
+			).toBe(0)
+			expect(
+				recordField(
+					parseJsonRecord(
+						(await invoke(['telemetry', 'show', '--session-id', 'inherited-claude-session']))
+							.stdout[0] ?? '',
+					),
+					'value',
+				).events,
+			).toHaveLength(1)
+
+			processEnvironment.WORK_SESSION_ID = `private-${'x'.repeat(300)}`
+			const invalidAmbient = await invoke([
+				'feedback',
+				'--kind',
+				'idea',
+				'--message',
+				'invalid ambient correlation remains non-fatal',
+			])
+			expect(invalidAmbient.status).toBe(0)
+			expect(invalidAmbient.stderr.join('\n')).toContain('invalid_telemetry_session_id')
+			expect(invalidAmbient.stderr.join('\n')).not.toContain('private-')
+		} finally {
+			if (priorWorkSession === undefined) delete processEnvironment.WORK_SESSION_ID
+			else processEnvironment.WORK_SESSION_ID = priorWorkSession
+			if (priorCodexThread === undefined) delete processEnvironment.CODEX_THREAD_ID
+			else processEnvironment.CODEX_THREAD_ID = priorCodexThread
+			if (priorCodexSession === undefined) delete processEnvironment.CODEX_SESSION_ID
+			else processEnvironment.CODEX_SESSION_ID = priorCodexSession
+			if (priorClaudeSession === undefined) delete processEnvironment.CLAUDE_CODE_SESSION_ID
+			else processEnvironment.CLAUDE_CODE_SESSION_ID = priorClaudeSession
+			await rm(root, { force: true, recursive: true })
+		}
+	})
+
 	it('retains feedback and telemetry from concurrent work streams', async () => {
 		const root = await mkdtemp(resolve(tmpdir(), 'work-contract-parallel-dogfood-'))
 		const invoke = async (args: readonly string[]) => {
