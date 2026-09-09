@@ -49,6 +49,8 @@ describe('release workflow', () => {
 	it('never overwrites immutable GitHub release evidence during recovery', async () => {
 		const workflow = await readFile(resolve(root, '.github/workflows/release.yml'), 'utf8')
 
+		expect(workflow).toContain('release-evidence-${{ github.run_attempt }}')
+		expect(workflow).toContain('name: ${{ needs.prepare.outputs.artifact }}')
 		expect(workflow).toContain('gh release download')
 		expect(workflow).toContain('cmp --silent')
 		expect(workflow).not.toContain('--clobber')
