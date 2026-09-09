@@ -35,6 +35,16 @@ describe('release workflow', () => {
 		expect(runbook).toContain('Approve the protected `npm-release` deployment in GitHub.')
 	})
 
+	it('retries npm attestation verification while registry metadata converges', async () => {
+		const workflow = await readFile(resolve(root, '.github/workflows/release.yml'), 'utf8')
+
+		expect(workflow).toContain('for attempt in $(seq 1 12); do')
+		expect(workflow).toContain('npm audit signatures --json --include-attestations')
+		expect(workflow).toContain(
+			'Published package attestations did not become readable within 60 seconds.',
+		)
+	})
+
 	it('retains only a manual recovery entrypoint instead of a second finalizer workflow', async () => {
 		const workflow = await readFile(resolve(root, '.github/workflows/release.yml'), 'utf8')
 
