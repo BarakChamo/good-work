@@ -1,6 +1,6 @@
 {
 	"name": "@good-work/work",
-	"version": "0.2.0",
+	"version": "0.3.0",
 	"private": false,
 	"description": "File-defined, local-first work coordination for humans and coding agents",
 	"keywords": [
