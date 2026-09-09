@@ -1,4 +1,4 @@
-/** @description Verifies staged npm provenance against the immutable source tag. */
+/** @description Verifies npm provenance against the immutable release source tag. */
 
 import { describe, expect, it } from 'vitest'
 
@@ -21,7 +21,7 @@ const statement = {
 				workflow: {
 					ref: 'refs/heads/main',
 					repository: 'https://github.com/BarakChamo/good-work',
-					path: '.github/workflows/stage-release.yml',
+					path: '.github/workflows/release.yml',
 				},
 			},
 			resolvedDependencies: [
@@ -74,7 +74,7 @@ const audit = {
 }
 
 describe('public release provenance', () => {
-	it('accepts the staged package when signed provenance names the tagged source commit', () => {
+	it('accepts the package when signed provenance names the tagged source commit', () => {
 		expect(() =>
 			verifyPublishedProvenance({
 				published,

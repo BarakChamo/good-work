@@ -10,7 +10,7 @@ const SLSA_PROVENANCE = 'https://slsa.dev/provenance/v1'
 const GITHUB_ACTIONS_BUILD =
 	'https://slsa-framework.github.io/github-actions-buildtypes/workflow/v1'
 const EXPECTED_REPOSITORY = 'BarakChamo/good-work'
-const EXPECTED_WORKFLOW = '.github/workflows/stage-release.yml'
+const EXPECTED_WORKFLOW = '.github/workflows/release.yml'
 
 const fail = (message) => {
 	throw new Error(message)
@@ -129,7 +129,7 @@ export const verifyPublishedProvenance = ({
 			dependency?.digest?.gitCommit === tagCommit,
 	)
 	if (sourceMatches !== true) {
-		fail('The npm provenance source commit does not match the staged source tag.')
+		fail('The npm provenance source commit does not match the release source tag.')
 	}
 }
 
@@ -176,8 +176,8 @@ const main = async () => {
 	const release = JSON.parse(
 		run(root, 'gh', ['release', 'view', `v${version}`, '--json', 'isDraft,tagName']),
 	)
-	if (release.tagName !== `v${version}` || release.isDraft !== true) {
-		fail('The matching GitHub Release must exist and remain a draft.')
+	if (release.tagName !== `v${version}` || typeof release.isDraft !== 'boolean') {
+		fail('The matching GitHub Release must exist for the source tag.')
 	}
 	process.stdout.write(`${packageDocument.name}@${version} provenance matches v${version}.\n`)
 }
