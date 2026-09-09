@@ -20,12 +20,14 @@ const build = () => {
 }
 
 const digests = async () => {
-	const entries = (await readdir(output)).sort()
+	const entries = (await readdir(output)).toSorted()
 	return Object.fromEntries(
 		await Promise.all(
 			entries.map(async (entry) => [
 				entry,
-				createHash('sha256').update(await readFile(resolve(output, entry))).digest('hex'),
+				createHash('sha256')
+					.update(await readFile(resolve(output, entry)))
+					.digest('hex'),
 			]),
 		),
 	)
