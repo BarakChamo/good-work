@@ -602,6 +602,35 @@ describe('work engineering hooks', () => {
 		expect(result.ok && result.value.nativeOutput).not.toContain('Command output')
 	})
 
+	it('handles commands that close stdin before the normalized event is written', async () => {
+		expect.hasAssertions()
+		const { root, state } = await createRepository()
+		await writeCommittedConfig(
+			root,
+			config({
+				beforeStop: [
+					{
+						id: 'closed-stdin',
+						command: 'sh',
+						args: ['-c', 'exec 0<&-; sleep 0.05; exit 3'],
+						output: { mode: 'silent', when: 'always' },
+					},
+				],
+			}),
+		)
+		await trustWorkHooks({ cwd: root, coordinationRoot: state })
+		const result = await dispatchWorkHooks({
+			cwd: root,
+			coordinationRoot: state,
+			runtime: 'codex',
+			nativeInput: JSON.stringify({ hook_event_name: 'Stop', stop_hook_active: false }),
+		})
+		expect(result).toMatchObject({
+			ok: true,
+			value: { executions: [{ id: 'closed-stdin', outcome: 'failure' }] },
+		})
+	})
+
 	it('rejects shell/path escapes, symlinked config, oversized input, and invalid event combinations', async () => {
 		expect.hasAssertions()
 		const { root, state } = await createRepository()
