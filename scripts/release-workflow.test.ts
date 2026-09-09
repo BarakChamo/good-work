@@ -39,8 +39,25 @@ describe('release workflow', () => {
 		const workflow = await readFile(resolve(root, '.github/workflows/release.yml'), 'utf8')
 
 		expect(workflow).toContain("github.event_name == 'workflow_dispatch'")
+		expect(workflow).toContain('github.run_attempt > 1')
+		expect(workflow).toContain("steps.registry.outputs.published != 'true'")
 		await expect(
 			readFile(resolve(root, '.github/workflows/finalize-release.yml'), 'utf8'),
 		).rejects.toThrow(/ENOENT/u)
+	})
+
+	it('never overwrites immutable GitHub release evidence during recovery', async () => {
+		const workflow = await readFile(resolve(root, '.github/workflows/release.yml'), 'utf8')
+
+		expect(workflow).toContain('gh release download')
+		expect(workflow).toContain('cmp --silent')
+		expect(workflow).not.toContain('--clobber')
+	})
+
+	it('keeps Changesets guidance aligned with direct protected publication', async () => {
+		const guide = await readFile(resolve(root, '.changeset/README.md'), 'utf8')
+
+		expect(guide).toContain('protected `npm-release` deployment')
+		expect(guide).not.toContain('separate staged')
 	})
 })
