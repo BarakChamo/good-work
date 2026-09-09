@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0
+
+### Minor Changes
+
+- [#21](https://github.com/BarakChamo/good-work/pull/21) [`f94da76`](https://github.com/BarakChamo/good-work/commit/f94da76bcc4a6ecd253784b05be8cf8eebdc14c7) Thanks [@BarakChamo](https://github.com/BarakChamo)! - Add an independent exact-tree review gate with prepare, status, approve, and
+  request-changes commands. Review reports and receipts remain in Git, reviewer
+  launch stays in the surrounding runtime, and finalization rejects missing or
+  stale approval when review evidence is configured.
+
 ## 0.3.0
 
 ### Minor Changes
