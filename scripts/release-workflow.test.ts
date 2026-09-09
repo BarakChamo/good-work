@@ -45,6 +45,16 @@ describe('release workflow', () => {
 		)
 	})
 
+	it('authenticates the provenance verifier for GitHub tag resolution', async () => {
+		const workflow = await readFile(resolve(root, '.github/workflows/release.yml'), 'utf8')
+		const verifierStep = workflow.slice(workflow.indexOf('- name: Verify public npm'))
+
+		expect(verifierStep).toContain('GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}')
+		expect(verifierStep.indexOf('GH_TOKEN:')).toBeLessThan(
+			verifierStep.indexOf('run: node scripts/verify-public-release.mjs'),
+		)
+	})
+
 	it('retains only a manual recovery entrypoint instead of a second finalizer workflow', async () => {
 		const workflow = await readFile(resolve(root, '.github/workflows/release.yml'), 'utf8')
 

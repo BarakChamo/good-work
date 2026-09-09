@@ -160,6 +160,7 @@ jobs:
           exit 1
       - name: Verify public npm and source provenance
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_AUDIT_SIGNATURES_PATH: ${{ runner.temp }}/npm-audit-signatures.json
           RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
         run: node scripts/verify-public-release.mjs
