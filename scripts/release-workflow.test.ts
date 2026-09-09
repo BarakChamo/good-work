@@ -62,4 +62,20 @@ describe('release workflow', () => {
 		expect(guide).toContain('protected `npm-release` deployment')
 		expect(guide).not.toContain('separate staged')
 	})
+
+	it('validates bot-authored Changesets PRs without a second human approval', async () => {
+		const ci = await readFile(resolve(root, '.github/workflows/ci.yml'), 'utf8')
+		const security = await readFile(resolve(root, '.github/workflows/security.yml'), 'utf8')
+		const releasePr = await readFile(resolve(root, '.github/workflows/release-pr.yml'), 'utf8')
+
+		for (const workflow of [ci, security]) {
+			expect(workflow).toContain('workflow_dispatch:')
+		}
+		expect(releasePr).toContain('actions: write')
+		expect(releasePr).toContain("steps.changesets.outputs['has-changesets'] == 'true'")
+		expect(releasePr).toContain('gh workflow run ci.yml --ref changeset-release/main')
+		expect(releasePr).toContain('gh workflow run security.yml --ref changeset-release/main')
+		expect(security).toContain('base-ref: main')
+		expect(security).toContain('head-ref: changeset-release/main')
+	})
 })

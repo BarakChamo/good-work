@@ -2,6 +2,7 @@ name: Security
 
 on:
   pull_request:
+  workflow_dispatch:
   push:
     branches: [main]
   schedule:
@@ -13,13 +14,22 @@ permissions:
 jobs:
   dependency-review:
     name: Dependency review
-    if: github.event_name == 'pull_request'
+    if: >-
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'workflow_dispatch' &&
+      github.ref_name == 'changeset-release/main')
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        if: github.event_name == 'pull_request'
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          base-ref: main
+          head-ref: changeset-release/main
 
   codeql:
     name: CodeQL
@@ -34,4 +44,3 @@ jobs:
         with:
           languages: javascript-typescript
       - uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
-

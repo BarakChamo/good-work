@@ -638,6 +638,10 @@ const defaultRunCommand: RunCommand = async (input) =>
 		child.stderr.on('data', (chunk: Buffer) => {
 			stderr = append(stderr, chunk)
 		})
+		// Short-lived hooks may close stdin before end(); their process exit remains authoritative.
+		child.stdin.on('error', () => {
+			// The close listener below reports the process outcome.
+		})
 		const timer = setTimeout(() => {
 			timedOut = true
 			child.kill('SIGTERM')
