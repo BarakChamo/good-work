@@ -108,5 +108,9 @@ that do not already carry `--session`; `CODEX_SESSION_ID` is a final Codex
 fallback. `WORK_SESSION_ID` has highest precedence and an explicit command
 session has priority over every environment value.
 
+Command events expose bounded phase totals for local profiling. Exact-tree
+review freshness contributes to `git_observation`, separating it from definition
+compilation and provider reads without recording reviewed paths or content.
+
 The CLI never runs a check, launches an agent or reviewer, changes Git, opens a
 pull request, merges, creates isolation, or removes a worktree.

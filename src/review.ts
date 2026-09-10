@@ -25,6 +25,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 
 import type { WorkResult } from './contracts'
 import { WORK_ID_PATTERN } from './contracts'
+import { measureCommandPhase } from './command-profile'
 import { readBoundedContainedUtf8, writeUtf8NoFollow } from './files'
 import { observeGitWorkspace } from './git-observer'
 import { prepareSafeOutputPath } from './paths'
@@ -176,24 +177,28 @@ const statusPaths = (source: string): readonly string[] =>
 const changedPaths = async (input: {
 	readonly root: string
 	readonly subjectHead: string
+	readonly observedHead?: string
 }): Promise<WorkResult<readonly string[]>> => {
 	try {
-		const observedHead = (await gitOutput(input.root, ['rev-parse', 'HEAD'])).trim()
-		const committed = await gitOutput(input.root, [
-			'diff',
-			'--no-renames',
-			'--name-only',
-			'-z',
-			input.subjectHead,
-			observedHead,
-			'--',
-		])
-		const dirty = await gitOutput(input.root, [
-			'status',
-			'--porcelain=v1',
-			'-z',
-			'--untracked-files=all',
-			'--no-renames',
+		const observedHead =
+			input.observedHead ?? (await gitOutput(input.root, ['rev-parse', 'HEAD'])).trim()
+		const [committed, dirty] = await Promise.all([
+			gitOutput(input.root, [
+				'diff',
+				'--no-renames',
+				'--name-only',
+				'-z',
+				input.subjectHead,
+				observedHead,
+				'--',
+			]),
+			gitOutput(input.root, [
+				'status',
+				'--porcelain=v1',
+				'-z',
+				'--untracked-files=all',
+				'--no-renames',
+			]),
 		])
 		const confirmedHead = (await gitOutput(input.root, ['rev-parse', 'HEAD'])).trim()
 		if (confirmedHead !== observedHead) {
@@ -288,25 +293,35 @@ export const loadReviewReceipt = async (input: {
 }
 
 /** @description Verifies that only the review protocol files changed after the reviewed tree. */
-export const validateReviewReceipt = async (input: {
+const validateReviewReceiptInternal = async (input: {
 	readonly root: string
 	readonly receipt: ReviewReceipt
 }): Promise<WorkResult<{ readonly current: true }>> => {
 	const workspace = await observeGitWorkspace({ root: input.root })
-	if (!workspace.ok || !workspace.value.available) {
+	if (!workspace.ok || !workspace.value.available || workspace.value.headSha === undefined) {
 		return failure('review_target_stale', 'The reviewed Git revision is unavailable.')
 	}
+	let reviewedTree: string
+	let paths: WorkResult<readonly string[]>
 	try {
-		const reviewedTree = (
-			await gitOutput(input.root, ['rev-parse', `${input.receipt.subject.headSha}^{tree}`])
-		).trim()
-		if (reviewedTree !== input.receipt.subject.treeSha) {
-			return failure('review_target_stale', 'The reviewed implementation tree is inconsistent.')
-		}
+		const validation = await Promise.all([
+			gitOutput(input.root, ['rev-parse', `${input.receipt.subject.headSha}^{tree}`]).then(
+				(value) => value.trim(),
+			),
+			changedPaths({
+				root: input.root,
+				subjectHead: input.receipt.subject.headSha,
+				observedHead: workspace.value.headSha,
+			}),
+		])
+		reviewedTree = validation[0]
+		paths = validation[1]
 	} catch {
 		return failure('review_target_stale', 'The reviewed implementation revision is unavailable.')
 	}
-	const paths = await changedPaths({ root: input.root, subjectHead: input.receipt.subject.headSha })
+	if (reviewedTree !== input.receipt.subject.treeSha) {
+		return failure('review_target_stale', 'The reviewed implementation tree is inconsistent.')
+	}
 	if (!paths.ok) {
 		return paths
 	}
@@ -323,6 +338,13 @@ export const validateReviewReceipt = async (input: {
 	}
 	return validateReport(input)
 }
+
+/** @description Verifies exact-tree approval within the existing Git profiling phase. */
+export const validateReviewReceipt = async (input: {
+	readonly root: string
+	readonly receipt: ReviewReceipt
+}): Promise<WorkResult<{ readonly current: true }>> =>
+	measureCommandPhase('git_observation', async () => validateReviewReceiptInternal(input))
 
 /** @description Verifies durable historical review evidence without coupling it to current HEAD. */
 export const validateHistoricalReviewReceipt = validateReport

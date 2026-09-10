@@ -58,8 +58,21 @@ state, but do not start it.
 
 ## Start work
 
-For `start <id-or-path>`, choose one stable actor identity for this session.
-Prefer a supplied identity; otherwise generate a collision-resistant
+For `start <id-or-path>`, first run the read-only preparation from the caller's
+current workspace:
+
+```sh
+bun run work prepare <id-or-path> --json
+```
+
+Follow its first semantic `nextAction`. If it returns `provision_workspace`,
+create that isolation through the surrounding repository workflow, enter the
+new workspace, and run `prepare` there once more. Do not call `work start` from
+a workspace that preparation rejected; `start` intentionally repeats admission
+and would only return the same non-mutating failure.
+
+Once preparation returns `start`, choose one stable actor identity for this
+session. Prefer a supplied identity; otherwise generate a collision-resistant
 runtime/work identity once. Prefix it with the actual runtime
 (`codex-issue-156-7f3a2c` or `claude-issue-156-7f3a2c`), not the workflow role.
 Never derive it from runtime and work ID alone. Then use the composed command
@@ -178,7 +191,15 @@ direct children.
   in-place upgrade); the state home defaults to `~/.work` and honors
   `WORK_CONTRACT_STATE_HOME`. Then run `work sync --apply`. This intentionally
   loses disposable active coordination, not Git-backed definitions or
-  completions.
+  completions. If integration encounters semantic source conflicts, resolve
+  them in an isolated integration workspace, create and validate the exact
+  combined commit, then request one independent read-only integration review
+  through the runtime before advancing the target. This follow-up reviews only
+  the conflict resolution; it does not replace or rewrite the candidate's
+  durable `work review` receipt, and Work does not launch it. Mechanical
+  conflict resolution that cannot change behavior may skip the follow-up when
+  the merger records why. Blocking findings return to the merger for correction
+  and another read-only pass.
 - `reconcile`: after the candidate and its completion record land, stay in the
   claimed issue worktree and run `work reconcile`. It imports the canonical
   repository record for that selected item only, closes disposable activity,

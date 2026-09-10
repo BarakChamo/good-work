@@ -56,6 +56,16 @@ describe('work plugin artifact', () => {
 		await expect(access(resolve(pluginRoot, 'package.json'))).rejects.toThrow('ENOENT')
 	})
 
+	it('routes isolated starts and semantic merge conflicts without avoidable failed commands', async () => {
+		expect.hasAssertions()
+		const skill = await readFile(resolve(import.meta.dirname, '../skills/work/SKILL.md'), 'utf8')
+
+		expect(skill).toContain('prepare <id-or-path>')
+		expect(skill).toMatch(/Do not call `work start` from\s+a workspace that preparation rejected/u)
+		expect(skill).toContain('semantic source conflicts')
+		expect(skill).toContain('independent read-only integration review')
+	})
+
 	it('documents the PATH-visible CLI prerequisite used by the bridge', async () => {
 		expect.hasAssertions()
 		const readme = await readFile(resolve(pluginRoot, 'README.md'), 'utf8')

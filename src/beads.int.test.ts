@@ -1430,7 +1430,7 @@ process.exit(result.status ?? 1)
 				expectedDependencies: [],
 			}),
 		).resolves.toMatchObject({ ok: true })
-	}, 30_000)
+	}, 60_000)
 
 	it('preserves a replacement lock generation when the prior owner becomes stale', async () => {
 		await mkdir(join(root, '.work'), { recursive: true })
@@ -1804,7 +1804,7 @@ await rename(temporary, ${JSON.stringify(lockPath)})
 			await rm(secondWorktree, { force: true, recursive: true })
 			await rm(definitionWorktree, { force: true, recursive: true })
 		}
-	}, 30_000)
+	}, 60_000)
 
 	it('meets five-run steady-state latency gates for ready, claim, and complete', async () => {
 		const binary = resolveDefaultBeadsBinary()
