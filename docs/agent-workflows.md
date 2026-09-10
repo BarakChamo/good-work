@@ -9,6 +9,10 @@ receives the same operating contract.
 - `$work` in Codex or `/work` in Claude is read-only and presents current work.
 - `$work ISSUE-123` prepares and validates without claiming.
 - `$work start ISSUE-123` authorizes claim and execution.
+- An explicit agent-native start still runs `work prepare` first. If preparation
+  requires a worktree or container, the agent provisions it through the
+  surrounding repository workflow and prepares again there before calling
+  `work start` once.
 - The skill generates one collision-resistant actor for that session and uses a
   real runtime session ID only when the runtime supplies it unambiguously.
 - The caller follows the CLI's `nextActions`. A worktree or container is created
@@ -103,6 +107,11 @@ reopen, or authorized recovery route after inspecting the typed conflict.
 - Let bounded provider locks finish; do not bypass them with direct Beads edits.
 - Use the integration mutex before participating local workers advance the same
   target. It coordinates only Work-aware local sessions; it is not a Git lock.
+- When integration requires semantic source-conflict resolution, validate the
+  exact combined commit and obtain an independent read-only review of that
+  resolution before advancing the target. Keep the original candidate review
+  receipt immutable; this is an integration safeguard owned by the surrounding
+  merger workflow, not another Work transition.
 - Reconcile each item from its original claimed worktree after landing.
 
 Definitions and completion records are safely shared through Git. Live claims,

@@ -87,11 +87,14 @@ Starting is always explicit:
 bun run work start ISSUE-123 --actor codex-issue-123-a1b2c3 --json
 ```
 
-The returned `nextActions` guide the caller. Review-required work returns a
-`prepare_review` action: the surrounding runtime runs a distinct reviewer in the
-same worktree, verifies its durable disposition with `work review status`, and
-Work records the exact-tree result without launching that agent. Pending or
-partially persisted review attempts are never treated as completed handoffs.
+Agent-native `start` first evaluates `work prepare`; when isolation is required,
+the skill provisions it through the repository workflow and calls `start` only
+after preparation admits that workspace. The returned `nextActions` guide the
+caller. Review-required work returns a `prepare_review` action: the surrounding
+runtime runs a distinct reviewer in the same worktree, verifies its durable
+disposition with `work review status`, and Work records the exact-tree result
+without launching that agent. Pending or partially persisted review attempts
+are never treated as completed handoffs.
 Work validates repository policy but does not create worktrees, run tests,
 commit, open pull requests, merge, or clean up branches.
 

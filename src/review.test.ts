@@ -18,6 +18,7 @@ import {
 	validateReviewReceipt,
 	writeReviewReceipt,
 } from './review'
+import { withCommandPerformanceProfile } from './command-profile'
 import { executeFile } from './subprocess'
 
 let root: string
@@ -115,6 +116,40 @@ describe('repository review receipts', () => {
 			ok: false,
 			error: { code: 'review_target_stale' },
 		})
+	})
+
+	it('attributes exact-tree review freshness to the Git command phase', async () => {
+		// Given: a durable approval whose freshness must be checked against Git
+		const subject = await prepareReviewSubject({ root })
+		expect(subject.ok).toBe(true)
+		if (!subject.ok) return
+		await mkdir(join(root, 'docs/work/reviews'), { recursive: true })
+		await writeFile(join(root, 'docs/work/reviews/ISSUE-1.md'), '# Review\n\nApproved.\n')
+		const written = await writeReviewReceipt({
+			root,
+			projectId: 'example',
+			definitionHash: 'a'.repeat(64),
+			workId: 'ISSUE-1',
+			implementationActor: 'implementer',
+			reviewer: { actor: 'reviewer', evaluator: 'agent' },
+			disposition: 'approved',
+			reportReference: 'docs/work/reviews/ISSUE-1.md',
+			subject: subject.value,
+			decidedAt: '2026-09-09T00:00:00.000Z',
+		})
+		expect(written.ok).toBe(true)
+		if (!written.ok) return
+
+		// When: the exact-tree approval is checked under command profiling
+		const profiled = await withCommandPerformanceProfile(async () =>
+			validateReviewReceipt({ root, receipt: written.value.receipt }),
+		)
+
+		// Then: the outer freshness check and nested workspace read form one bounded Git total
+		expect(profiled.value).toMatchObject({ ok: true })
+		expect(profiled.phases).toContainEqual(
+			expect.objectContaining({ phase: 'git_observation', count: 2 }),
+		)
 	})
 
 	it('rejects a rename that moves implementation content into the allowed report path', async () => {
