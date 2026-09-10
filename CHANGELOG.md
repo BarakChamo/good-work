@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.1
+
+### Patch Changes
+
+- [#25](https://github.com/BarakChamo/good-work/pull/25) [`ca73b3e`](https://github.com/BarakChamo/good-work/commit/ca73b3e3e07f9acbcd700637dee0d66bcdd5592a) Thanks [@BarakChamo](https://github.com/BarakChamo)! - Prepare isolation before agent-owned starts, require an independent read-only
+  review after semantic integration conflicts, and expose/shorten exact-tree
+  review validation in local performance telemetry.
+
 ## 0.5.0
 
 ### Minor Changes
