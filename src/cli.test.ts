@@ -780,6 +780,21 @@ describe('work-contract CLI', () => {
 				['start', 'ISSUE-PRIVATE', '--actor', 'agent-private'],
 				['submit', 'ISSUE-PRIVATE', '--actor', 'agent-private'],
 				['reconcile', 'ISSUE-PRIVATE', '--actor', 'agent-private'],
+				['review', 'status', 'ISSUE-PRIVATE'],
+				['review', 'prepare', 'ISSUE-PRIVATE', '--actor', 'agent-private'],
+				[
+					'review',
+					'approve',
+					'ISSUE-PRIVATE',
+					'--actor',
+					'reviewer-private',
+					'--evaluator',
+					'agent',
+					'--report',
+					'docs/work/reviews/ISSUE-PRIVATE.md',
+					'--head',
+					'1'.repeat(40),
+				],
 				['export'],
 			] as const) {
 				await expect(invoke(args)).resolves.not.toBe(2)
@@ -799,6 +814,9 @@ describe('work-contract CLI', () => {
 				'start',
 				'submit',
 				'reconcile',
+				'review.status',
+				'review.prepare',
+				'review.approve',
 				'export',
 			])
 			for (const event of workflowEvents.slice(0, -1)) {

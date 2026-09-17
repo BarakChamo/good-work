@@ -8,7 +8,16 @@
 /* oxlint-disable eslint/max-classes-per-file, vitest/prefer-expect-assertions -- Test doubles and behavioral assertions stay local to the service contract. */
 
 import { createHash } from 'node:crypto'
-import { mkdtemp, mkdir, rm, symlink, truncate, writeFile } from 'node:fs/promises'
+import {
+	access,
+	mkdtemp,
+	mkdir,
+	readFile,
+	rm,
+	symlink,
+	truncate,
+	writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -25,10 +34,12 @@ import type {
 	LedgerHandoffInput,
 	LedgerItem,
 	LedgerRelationsInput,
+	LedgerReviewInput,
 	LedgerSubmissionInput,
 	LedgerTransitionInput,
 } from './provider'
 import { INPUT_LIMITS } from './files'
+import { writeReviewReceipt } from './review'
 import { createWorkContractService } from './service'
 import { executeFile } from './subprocess'
 
@@ -100,6 +111,7 @@ class MemoryCollaborationProvider implements CollaborativeLedgerProvider {
 	public readonly activities: LedgerActivityInput[] = []
 	public readonly handoffs: LedgerHandoffInput[] = []
 	public readonly submissions: LedgerSubmissionInput[] = []
+	public readonly reviews: LedgerReviewInput[] = []
 
 	public async doctor(): Promise<
 		WorkResult<{ readonly provider: string; readonly version: string }>
@@ -231,6 +243,19 @@ class MemoryCollaborationProvider implements CollaborativeLedgerProvider {
 			}
 		}
 		const updated = { ...item, candidate: input.candidate, gates: input.gates }
+		this.items.set(input.workId, updated)
+		return { ok: true, value: updated }
+	}
+	public async recordReview(input: LedgerReviewInput): Promise<WorkResult<LedgerItem>> {
+		this.reviews.push(input)
+		const item = this.items.get(input.workId)
+		if (item === undefined) {
+			return {
+				ok: false,
+				error: { type: 'work_contract_error', code: 'work_not_found', message: 'missing' },
+			}
+		}
+		const updated = { ...item, review: input.review }
 		this.items.set(input.workId, updated)
 		return { ok: true, value: updated }
 	}
@@ -503,6 +528,572 @@ afterEach(async () => {
 })
 
 describe('multi-session work service', () => {
+	it('prepares and records an exact-tree review by a distinct actor', async () => {
+		// Given: active implementation work at a clean committed revision
+		await execute('git', ['init', '-b', 'feature'], { cwd: root })
+		await execute('git', ['config', 'user.name', 'Work Contract'], { cwd: root })
+		await execute('git', ['config', 'user.email', 'work@example.test'], { cwd: root })
+		await writeFile(join(root, 'implementation.ts'), 'export const value = 1\n')
+		await execute('git', ['add', '.'], { cwd: root })
+		await execute('git', ['commit', '-m', 'implementation'], { cwd: root })
+		const definitionHash = 'b'.repeat(64)
+		const reviewGraph = {
+			...graph,
+			fingerprint: 'a'.repeat(64),
+			items: graph.items.map((item) =>
+				item.id === 'ISSUE-1'
+					? { ...item, source: { ...item.source, hash: definitionHash } }
+					: item,
+			),
+		}
+		const provider = new MemoryCollaborationProvider()
+		provider.items.set('ISSUE-0', { ...requireLedgerItem(provider, 'ISSUE-0'), status: 'closed' })
+		provider.items.set('ISSUE-1', {
+			...requireLedgerItem(provider, 'ISSUE-1'),
+			source: { ...requireLedgerItem(provider, 'ISSUE-1').source, hash: definitionHash },
+			status: 'in_progress',
+			assignee: 'implementer',
+			activity: {
+				actor: 'implementer',
+				session: 'parent-session',
+				startedAt: '2026-09-01T00:00:00.000Z',
+				touchedAt: '2026-09-01T00:00:00.000Z',
+			},
+		})
+		const service = createWorkContractService({
+			root,
+			graph: reviewGraph,
+			provider,
+			clock: () => new Date('2026-09-09T00:00:00.000Z'),
+		})
+
+		// When: the owner prepares review and a separate reviewer approves it
+		const prepared = await service.prepareReview({
+			workId: 'ISSUE-1',
+			actor: 'implementer',
+			session: 'parent-session',
+		})
+		expect(prepared).toMatchObject({
+			ok: true,
+			value: {
+				workId: 'ISSUE-1',
+				implementationActor: 'implementer',
+				subject: { headSha: expect.any(String) },
+			},
+		})
+		if (!prepared.ok) return
+		await mkdir(join(root, 'docs/work/reviews'), { recursive: true })
+		await writeFile(join(root, 'docs/work/reviews/ISSUE-1.md'), '# Review\n\nAccepted.\n')
+		const approved = await service.recordReview({
+			workId: 'ISSUE-1',
+			reviewerActor: 'reviewer',
+			reviewerSession: 'review-session',
+			evaluator: 'agent',
+			disposition: 'approved',
+			reportReference: 'docs/work/reviews/ISSUE-1.md',
+			reviewedHead: prepared.value.subject.headSha,
+		})
+
+		// Then: Work persists both operational status and a repository receipt
+		expect(approved).toMatchObject({
+			ok: true,
+			value: {
+				workId: 'ISSUE-1',
+				disposition: 'approved',
+				reviewReceipt: 'docs/work/reviews/ISSUE-1.yaml',
+			},
+		})
+		expect(provider.reviews).toHaveLength(1)
+		expect(requireLedgerItem(provider, 'ISSUE-1').review).toMatchObject({
+			disposition: 'approved',
+			reviewer: { actor: 'reviewer' },
+		})
+	})
+
+	it('rejects self-review without writing a decision or receipt', async () => {
+		await execute('git', ['init', '-b', 'feature'], { cwd: root })
+		await execute('git', ['config', 'user.name', 'Work Contract'], { cwd: root })
+		await execute('git', ['config', 'user.email', 'work@example.test'], { cwd: root })
+		await writeFile(join(root, 'implementation.ts'), 'export const value = 1\n')
+		await execute('git', ['add', '.'], { cwd: root })
+		await execute('git', ['commit', '-m', 'implementation'], { cwd: root })
+		const provider = new MemoryCollaborationProvider()
+		provider.items.set('ISSUE-0', { ...requireLedgerItem(provider, 'ISSUE-0'), status: 'closed' })
+		provider.items.set('ISSUE-1', {
+			...requireLedgerItem(provider, 'ISSUE-1'),
+			status: 'in_progress',
+			assignee: 'implementer',
+			activity: {
+				actor: 'implementer',
+				startedAt: '2026-09-01T00:00:00.000Z',
+				touchedAt: '2026-09-01T00:00:00.000Z',
+			},
+		})
+		const service = createWorkContractService({
+			root,
+			graph: { ...graph, fingerprint: 'a'.repeat(64) },
+			provider,
+		})
+		const subject = await service.prepareReview({ workId: 'ISSUE-1', actor: 'implementer' })
+		expect(subject.ok).toBe(true)
+		if (!subject.ok) return
+		await mkdir(join(root, 'docs/work/reviews'), { recursive: true })
+		await writeFile(join(root, 'docs/work/reviews/ISSUE-1.md'), '# Review\n')
+
+		await expect(
+			service.recordReview({
+				workId: 'ISSUE-1',
+				reviewerActor: 'implementer',
+				evaluator: 'agent',
+				disposition: 'approved',
+				reportReference: 'docs/work/reviews/ISSUE-1.md',
+				reviewedHead: subject.value.subject.headSha,
+			}),
+		).resolves.toMatchObject({ ok: false, error: { code: 'review_actor_conflict' } })
+		expect(provider.reviews).toHaveLength(0)
+	})
+
+	it('reports and recovers a provider review whose repository receipt was interrupted', async () => {
+		await execute('git', ['init', '-b', 'feature'], { cwd: root })
+		await execute('git', ['config', 'user.name', 'Work Contract'], { cwd: root })
+		await execute('git', ['config', 'user.email', 'work@example.test'], { cwd: root })
+		await writeFile(join(root, 'implementation.ts'), 'export const value = 1\n')
+		await execute('git', ['add', '.'], { cwd: root })
+		await execute('git', ['commit', '-m', 'implementation'], { cwd: root })
+		const definitionHash = 'b'.repeat(64)
+		const reviewGraph = {
+			...graph,
+			fingerprint: 'a'.repeat(64),
+			items: graph.items.map((item) =>
+				item.id === 'ISSUE-1'
+					? { ...item, source: { ...item.source, hash: definitionHash } }
+					: item,
+			),
+		}
+		const provider = new MemoryCollaborationProvider()
+		provider.items.set('ISSUE-0', { ...requireLedgerItem(provider, 'ISSUE-0'), status: 'closed' })
+		provider.items.set('ISSUE-1', {
+			...requireLedgerItem(provider, 'ISSUE-1'),
+			source: { ...requireLedgerItem(provider, 'ISSUE-1').source, hash: definitionHash },
+			status: 'in_progress',
+			assignee: 'implementer',
+			activity: {
+				actor: 'implementer',
+				startedAt: '2026-09-01T00:00:00.000Z',
+				touchedAt: '2026-09-01T00:00:00.000Z',
+			},
+		})
+		const service = createWorkContractService({
+			root,
+			graph: reviewGraph,
+			provider,
+			clock: () => new Date('2026-09-09T00:00:00.000Z'),
+		})
+		const prepared = await service.prepareReview({ workId: 'ISSUE-1', actor: 'implementer' })
+		expect(prepared.ok).toBe(true)
+		if (!prepared.ok) return
+		await mkdir(join(root, 'docs/work/reviews'), { recursive: true })
+		const report = '# Review\n\nAccepted.\n'
+		await writeFile(join(root, 'docs/work/reviews/ISSUE-1.md'), report)
+		const review = {
+			disposition: 'approved' as const,
+			implementationActor: 'implementer',
+			subject: prepared.value.subject,
+			reviewer: { actor: 'reviewer', session: 'review-session', evaluator: 'agent' as const },
+			report: {
+				reference: 'docs/work/reviews/ISSUE-1.md',
+				digest: createHash('sha256').update(report).digest('hex'),
+			},
+			decidedAt: '2026-09-09T00:00:00.000Z',
+		}
+		provider.items.set('ISSUE-1', { ...requireLedgerItem(provider, 'ISSUE-1'), review })
+
+		await expect(service.reviewStatus('ISSUE-1')).resolves.toMatchObject({
+			ok: true,
+			value: {
+				state: 'incomplete',
+				missing: 'repository_receipt',
+				review: { disposition: 'approved', reviewer: { actor: 'reviewer' } },
+			},
+		})
+		await expect(
+			service.recordReview({
+				workId: 'ISSUE-1',
+				reviewerActor: 'reviewer',
+				reviewerSession: 'review-session',
+				evaluator: 'agent',
+				disposition: 'approved',
+				reportReference: 'docs/work/reviews/ISSUE-1.md',
+				reviewedHead: prepared.value.subject.headSha,
+			}),
+		).resolves.toMatchObject({ ok: true, value: { disposition: 'approved' } })
+		await expect(readFile(join(root, 'docs/work/reviews/ISSUE-1.yaml'), 'utf8')).resolves.toContain(
+			'actor: reviewer',
+		)
+
+		const replacementReview = {
+			...review,
+			implementationActor: 'replacement-implementer',
+			reviewer: { actor: 'reviewer-b', session: 'replacement-review', evaluator: 'agent' as const },
+			decidedAt: '2026-09-09T01:00:00.000Z',
+		}
+		provider.items.set('ISSUE-1', {
+			...requireLedgerItem(provider, 'ISSUE-1'),
+			assignee: 'replacement-implementer',
+			activity: {
+				actor: 'replacement-implementer',
+				startedAt: '2026-09-09T01:00:00.000Z',
+				touchedAt: '2026-09-09T01:00:00.000Z',
+			},
+			review: replacementReview,
+		})
+		await expect(service.reviewStatus('ISSUE-1')).resolves.toMatchObject({
+			ok: true,
+			value: {
+				state: 'incomplete',
+				missing: 'repository_receipt',
+				review: {
+					implementationActor: 'replacement-implementer',
+					reviewer: { actor: 'reviewer-b' },
+				},
+			},
+		})
+		await expect(
+			service.recordReview({
+				workId: 'ISSUE-1',
+				reviewerActor: 'reviewer-b',
+				reviewerSession: 'replacement-review',
+				evaluator: 'agent',
+				disposition: 'approved',
+				reportReference: 'docs/work/reviews/ISSUE-1.md',
+				reviewedHead: prepared.value.subject.headSha,
+			}),
+		).resolves.toMatchObject({ ok: true, value: { disposition: 'approved' } })
+		await expect(readFile(join(root, 'docs/work/reviews/ISSUE-1.yaml'), 'utf8')).resolves.toContain(
+			'implementation_actor: replacement-implementer',
+		)
+
+		await rm(join(root, 'docs/work/reviews/ISSUE-1.yaml'))
+		provider.items.set('ISSUE-1', {
+			...requireLedgerItem(provider, 'ISSUE-1'),
+			assignee: 'replacement-implementer',
+			activity: {
+				actor: 'replacement-implementer',
+				startedAt: '2026-09-09T01:00:00.000Z',
+				touchedAt: '2026-09-09T01:00:00.000Z',
+			},
+			review,
+		})
+		await expect(
+			service.recordReview({
+				workId: 'ISSUE-1',
+				reviewerActor: 'reviewer',
+				reviewerSession: 'review-session',
+				evaluator: 'agent',
+				disposition: 'approved',
+				reportReference: 'docs/work/reviews/ISSUE-1.md',
+				reviewedHead: prepared.value.subject.headSha,
+			}),
+		).resolves.toMatchObject({ ok: false, error: { code: 'review_receipt_invalid' } })
+		await expect(access(join(root, 'docs/work/reviews/ISSUE-1.yaml'))).rejects.toThrow('ENOENT')
+	})
+
+	it('reports and recovers a repository receipt whose provider publication was interrupted', async () => {
+		await execute('git', ['init', '-b', 'feature'], { cwd: root })
+		await execute('git', ['config', 'user.name', 'Work Contract'], { cwd: root })
+		await execute('git', ['config', 'user.email', 'work@example.test'], { cwd: root })
+		await writeFile(join(root, 'implementation.ts'), 'export const value = 1\n')
+		await execute('git', ['add', '.'], { cwd: root })
+		await execute('git', ['commit', '-m', 'implementation'], { cwd: root })
+		const definitionHash = 'b'.repeat(64)
+		const reviewGraph = {
+			...graph,
+			fingerprint: 'a'.repeat(64),
+			items: graph.items.map((item) =>
+				item.id === 'ISSUE-1'
+					? { ...item, source: { ...item.source, hash: definitionHash } }
+					: item,
+			),
+		}
+		const provider = new MemoryCollaborationProvider()
+		provider.items.set('ISSUE-0', { ...requireLedgerItem(provider, 'ISSUE-0'), status: 'closed' })
+		provider.items.set('ISSUE-1', {
+			...requireLedgerItem(provider, 'ISSUE-1'),
+			source: { ...requireLedgerItem(provider, 'ISSUE-1').source, hash: definitionHash },
+			status: 'in_progress',
+			assignee: 'implementer',
+			activity: {
+				actor: 'implementer',
+				startedAt: '2026-09-01T00:00:00.000Z',
+				touchedAt: '2026-09-01T00:00:00.000Z',
+			},
+		})
+		const service = createWorkContractService({ root, graph: reviewGraph, provider })
+		const prepared = await service.prepareReview({ workId: 'ISSUE-1', actor: 'implementer' })
+		expect(prepared.ok).toBe(true)
+		if (!prepared.ok) return
+		await mkdir(join(root, 'docs/work/reviews'), { recursive: true })
+		await writeFile(join(root, 'docs/work/reviews/ISSUE-1.md'), '# Review\n\nChanges required.\n')
+		const receipt = await writeReviewReceipt({
+			root,
+			projectId: 'example',
+			definitionHash,
+			workId: 'ISSUE-1',
+			implementationActor: 'implementer',
+			reviewer: { actor: 'reviewer', evaluator: 'human' },
+			disposition: 'changes_requested',
+			reportReference: 'docs/work/reviews/ISSUE-1.md',
+			subject: prepared.value.subject,
+			decidedAt: '2026-09-09T00:00:00.000Z',
+		})
+		expect(receipt.ok).toBe(true)
+		await execute('git', ['add', 'docs/work/reviews'], { cwd: root })
+		await execute('git', ['commit', '-m', 'persist review evidence'], { cwd: root })
+
+		await expect(service.reviewStatus('ISSUE-1')).resolves.toMatchObject({
+			ok: true,
+			value: {
+				state: 'incomplete',
+				missing: 'provider_record',
+				receipt: 'docs/work/reviews/ISSUE-1.yaml',
+				review: { disposition: 'changes_requested', reviewer: { actor: 'reviewer' } },
+			},
+		})
+		const publish = provider.recordReview.bind(provider)
+		const interruptedPublish = vi
+			.spyOn(provider, 'recordReview')
+			.mockImplementation(async (input) => {
+				const result = await publish(input)
+				await writeFile(join(root, 'implementation.ts'), 'export const value = 2\n')
+				return result
+			})
+		await expect(
+			service.recordReview({
+				workId: 'ISSUE-1',
+				reviewerActor: 'reviewer',
+				evaluator: 'human',
+				disposition: 'changes_requested',
+				reportReference: 'docs/work/reviews/ISSUE-1.md',
+				reviewedHead: prepared.value.subject.headSha,
+			}),
+		).resolves.toMatchObject({ ok: false, error: { code: 'review_target_stale' } })
+		interruptedPublish.mockRestore()
+		await writeFile(join(root, 'implementation.ts'), 'export const value = 1\n')
+		const publishedItem = requireLedgerItem(provider, 'ISSUE-1')
+		const { review: _interruptedReview, ...withoutReview } = publishedItem
+		provider.items.set('ISSUE-1', withoutReview)
+		await expect(
+			service.recordReview({
+				workId: 'ISSUE-1',
+				reviewerActor: 'reviewer',
+				evaluator: 'human',
+				disposition: 'changes_requested',
+				reportReference: 'docs/work/reviews/ISSUE-1.md',
+				reviewedHead: prepared.value.subject.headSha,
+			}),
+		).resolves.toMatchObject({ ok: true, value: { disposition: 'changes_requested' } })
+		expect(requireLedgerItem(provider, 'ISSUE-1').review).toMatchObject({
+			disposition: 'changes_requested',
+			reviewer: { actor: 'reviewer' },
+		})
+
+		await writeFile(join(root, 'implementation.ts'), 'export const value = 2\n')
+		await execute('git', ['add', 'implementation.ts'], { cwd: root })
+		await execute('git', ['commit', '-m', 'revise implementation'], { cwd: root })
+		const revised = await service.prepareReview({ workId: 'ISSUE-1', actor: 'implementer' })
+		expect(revised.ok).toBe(true)
+		if (!revised.ok) return
+		const revisedReport = '# Review\n\nAccepted revision.\n'
+		await writeFile(join(root, 'docs/work/reviews/ISSUE-1.md'), revisedReport)
+		const revisedReview = {
+			disposition: 'approved' as const,
+			implementationActor: 'implementer',
+			subject: revised.value.subject,
+			reviewer: { actor: 'reviewer-b', evaluator: 'agent' as const },
+			report: {
+				reference: 'docs/work/reviews/ISSUE-1.md',
+				digest: createHash('sha256').update(revisedReport).digest('hex'),
+			},
+			decidedAt: '2026-09-09T02:00:00.000Z',
+		}
+		provider.items.set('ISSUE-1', {
+			...requireLedgerItem(provider, 'ISSUE-1'),
+			review: revisedReview,
+		})
+
+		await expect(service.reviewStatus('ISSUE-1')).resolves.toMatchObject({
+			ok: true,
+			value: {
+				schemaVersion: 2,
+				state: 'incomplete',
+				missing: 'repository_receipt',
+				review: { disposition: 'approved', reviewer: { actor: 'reviewer-b' } },
+			},
+		})
+		await expect(
+			service.recordReview({
+				workId: 'ISSUE-1',
+				reviewerActor: 'reviewer-b',
+				evaluator: 'agent',
+				disposition: 'approved',
+				reportReference: 'docs/work/reviews/ISSUE-1.md',
+				reviewedHead: revised.value.subject.headSha,
+			}),
+		).resolves.toMatchObject({ ok: true, value: { disposition: 'approved' } })
+	})
+
+	it('does not report approval when source changes during provider publication', async () => {
+		await execute('git', ['init', '-b', 'feature'], { cwd: root })
+		await execute('git', ['config', 'user.name', 'Work Contract'], { cwd: root })
+		await execute('git', ['config', 'user.email', 'work@example.test'], { cwd: root })
+		await writeFile(join(root, 'implementation.ts'), 'export const value = 1\n')
+		await execute('git', ['add', '.'], { cwd: root })
+		await execute('git', ['commit', '-m', 'implementation'], { cwd: root })
+		const definitionHash = 'b'.repeat(64)
+		const reviewGraph = {
+			...graph,
+			fingerprint: 'a'.repeat(64),
+			items: graph.items.map((item) =>
+				item.id === 'ISSUE-1'
+					? { ...item, source: { ...item.source, hash: definitionHash } }
+					: item,
+			),
+		}
+		const provider = new MemoryCollaborationProvider()
+		provider.items.set('ISSUE-0', { ...requireLedgerItem(provider, 'ISSUE-0'), status: 'closed' })
+		provider.items.set('ISSUE-1', {
+			...requireLedgerItem(provider, 'ISSUE-1'),
+			source: { ...requireLedgerItem(provider, 'ISSUE-1').source, hash: definitionHash },
+			status: 'in_progress',
+			assignee: 'implementer',
+			activity: {
+				actor: 'implementer',
+				startedAt: '2026-09-01T00:00:00.000Z',
+				touchedAt: '2026-09-01T00:00:00.000Z',
+			},
+		})
+		const service = createWorkContractService({
+			root,
+			graph: reviewGraph,
+			provider,
+		})
+		const subject = await service.prepareReview({ workId: 'ISSUE-1', actor: 'implementer' })
+		expect(subject.ok).toBe(true)
+		if (!subject.ok) return
+		await mkdir(join(root, 'docs/work/reviews'), { recursive: true })
+		await writeFile(join(root, 'docs/work/reviews/ISSUE-1.md'), '# Review\n')
+		const publish = provider.recordReview.bind(provider)
+		vi.spyOn(provider, 'recordReview').mockImplementation(async (input) => {
+			await writeFile(join(root, 'implementation.ts'), 'export const value = 2\n')
+			return publish(input)
+		})
+
+		const decision = await service.recordReview({
+			workId: 'ISSUE-1',
+			reviewerActor: 'reviewer',
+			evaluator: 'agent',
+			disposition: 'approved',
+			reportReference: 'docs/work/reviews/ISSUE-1.md',
+			reviewedHead: subject.value.subject.headSha,
+		})
+		expect(decision).toMatchObject({ ok: false, error: { code: 'review_target_stale' } })
+	})
+
+	it('does not overwrite the winning receipt when a reviewer submits a conflicting decision', async () => {
+		await execute('git', ['init', '-b', 'feature'], { cwd: root })
+		await execute('git', ['config', 'user.name', 'Work Contract'], { cwd: root })
+		await execute('git', ['config', 'user.email', 'work@example.test'], { cwd: root })
+		await writeFile(join(root, 'implementation.ts'), 'export const value = 1\n')
+		await execute('git', ['add', '.'], { cwd: root })
+		await execute('git', ['commit', '-m', 'implementation'], { cwd: root })
+		const definitionHash = 'b'.repeat(64)
+		const reviewGraph = {
+			...graph,
+			fingerprint: 'a'.repeat(64),
+			items: graph.items.map((item) =>
+				item.id === 'ISSUE-1'
+					? { ...item, source: { ...item.source, hash: definitionHash } }
+					: item,
+			),
+		}
+		const provider = new MemoryCollaborationProvider()
+		provider.items.set('ISSUE-0', { ...requireLedgerItem(provider, 'ISSUE-0'), status: 'closed' })
+		provider.items.set('ISSUE-1', {
+			...requireLedgerItem(provider, 'ISSUE-1'),
+			source: { ...requireLedgerItem(provider, 'ISSUE-1').source, hash: definitionHash },
+			status: 'in_progress',
+			assignee: 'implementer',
+			activity: {
+				actor: 'implementer',
+				startedAt: '2026-09-01T00:00:00.000Z',
+				touchedAt: '2026-09-01T00:00:00.000Z',
+			},
+		})
+		const service = createWorkContractService({
+			root,
+			graph: reviewGraph,
+			provider,
+		})
+		const subject = await service.prepareReview({ workId: 'ISSUE-1', actor: 'implementer' })
+		expect(subject.ok).toBe(true)
+		if (!subject.ok) return
+		await mkdir(join(root, 'docs/work/reviews'), { recursive: true })
+		await writeFile(join(root, 'docs/work/reviews/ISSUE-1.md'), '# Review\n')
+		await expect(
+			service.recordReview({
+				workId: 'ISSUE-1',
+				reviewerActor: 'reviewer-a',
+				evaluator: 'agent',
+				disposition: 'approved',
+				reportReference: 'docs/work/reviews/ISSUE-1.md',
+				reviewedHead: subject.value.subject.headSha,
+			}),
+		).resolves.toMatchObject({ ok: true })
+		const receiptPath = join(root, 'docs/work/reviews/ISSUE-1.yaml')
+		const winningReceipt = await readFile(receiptPath, 'utf8')
+
+		await expect(
+			service.recordReview({
+				workId: 'ISSUE-1',
+				reviewerActor: 'reviewer-b',
+				evaluator: 'human',
+				disposition: 'changes_requested',
+				reportReference: 'docs/work/reviews/ISSUE-1.md',
+				reviewedHead: subject.value.subject.headSha,
+			}),
+		).resolves.toMatchObject({ ok: false, error: { code: 'review_decision_conflict' } })
+		expect(await readFile(receiptPath, 'utf8')).toBe(winningReceipt)
+
+		await execute('git', ['add', 'docs/work/reviews'], { cwd: root })
+		await execute('git', ['commit', '-m', 'record first review'], { cwd: root })
+		await writeFile(join(root, 'implementation.ts'), 'export const value = 2\n')
+		await execute('git', ['add', 'implementation.ts'], { cwd: root })
+		await execute('git', ['commit', '-m', 'address review'], { cwd: root })
+		const revised = await service.prepareReview({ workId: 'ISSUE-1', actor: 'implementer' })
+		expect(revised.ok).toBe(true)
+		if (!revised.ok) return
+		await writeFile(join(root, 'docs/work/reviews/ISSUE-1.md'), '# Review\n\nRevision accepted.\n')
+		await expect(
+			service.recordReview({
+				workId: 'ISSUE-1',
+				reviewerActor: 'reviewer-b',
+				evaluator: 'human',
+				disposition: 'approved',
+				reportReference: 'docs/work/reviews/ISSUE-1.md',
+				reviewedHead: revised.value.subject.headSha,
+			}),
+		).resolves.toMatchObject({
+			ok: true,
+			value: { reviewerActor: 'reviewer-b', disposition: 'approved' },
+		})
+		expect(await readFile(receiptPath, 'utf8')).toContain('actor: reviewer-b')
+		expect(requireLedgerItem(provider, 'ISSUE-1')).toMatchObject({
+			status: 'in_progress',
+			assignee: 'implementer',
+			activity: { actor: 'implementer' },
+		})
+	})
+
 	it('keeps aggregate work out of ready and rejects direct execution', async () => {
 		const aggregate = artifact({
 			id: 'ISSUE-10',
@@ -765,6 +1356,102 @@ describe('multi-session work service', () => {
 				evidence: [{ kind: 'test', reference: 'proof.json' }],
 			}),
 		).resolves.toMatchObject({ ok: true, value: { candidate: { generation: 2 } } })
+	})
+
+	it('requires a current independent review and binds it to the submitted candidate', async () => {
+		// Given: review-required active work at a clean implementation revision
+		await execute('git', ['init', '-b', 'feature'], { cwd: root })
+		await execute('git', ['config', 'user.name', 'Work Contract'], { cwd: root })
+		await execute('git', ['config', 'user.email', 'work@example.test'], { cwd: root })
+		await writeFile(join(root, 'candidate.ts'), 'export const value = 1\n')
+		await writeFile(join(root, 'proof.json'), '{"passed":true}\n')
+		await execute('git', ['add', '.'], { cwd: root })
+		await execute('git', ['commit', '-m', 'implementation'], { cwd: root })
+		const reviewedArtifact = artifact({
+			...graph.items.find(({ id }) => id === 'ISSUE-1'),
+			id: 'ISSUE-1',
+			kind: 'issue',
+			title: 'Implement',
+			source: { path: 'docs/ISSUE-1.md', hash: 'b'.repeat(64) },
+			evidenceRequirements: ['test', 'review'],
+		})
+		const reviewedGraph = {
+			...graph,
+			fingerprint: 'a'.repeat(64),
+			items: graph.items.map((item) => (item.id === 'ISSUE-1' ? reviewedArtifact : item)),
+		}
+		const provider = new MemoryCollaborationProvider()
+		provider.items.set('ISSUE-0', { ...requireLedgerItem(provider, 'ISSUE-0'), status: 'closed' })
+		provider.items.set('ISSUE-1', {
+			...ledgerItem(reviewedArtifact),
+			status: 'in_progress',
+			assignee: 'implementer',
+			activity: {
+				actor: 'implementer',
+				startedAt: '2026-09-01T00:00:00.000Z',
+				touchedAt: '2026-09-01T00:00:00.000Z',
+			},
+		})
+		const service = createWorkContractService({ root, graph: reviewedGraph, provider })
+		await expect(
+			service.submit({
+				workId: 'ISSUE-1',
+				actor: 'implementer',
+				evidence: [
+					{ kind: 'test', reference: 'proof.json' },
+					{ kind: 'review', reference: 'proof.json' },
+				],
+			}),
+		).resolves.toMatchObject({ ok: false, error: { code: 'review_required' } })
+		expect(provider.submissions).toHaveLength(0)
+		const prepared = await service.prepareReview({ workId: 'ISSUE-1', actor: 'implementer' })
+		expect(prepared.ok).toBe(true)
+		if (!prepared.ok) return
+		await mkdir(join(root, 'docs/work/reviews'), { recursive: true })
+		await writeFile(join(root, 'docs/work/reviews/ISSUE-1.md'), '# Review\n\nAccepted.\n')
+		await expect(
+			service.recordReview({
+				workId: 'ISSUE-1',
+				reviewerActor: 'reviewer',
+				evaluator: 'agent',
+				disposition: 'approved',
+				reportReference: 'docs/work/reviews/ISSUE-1.md',
+				reviewedHead: prepared.value.subject.headSha,
+			}),
+		).resolves.toMatchObject({ ok: true })
+		await execute('git', ['add', 'docs/work/reviews'], { cwd: root })
+		await execute('git', ['commit', '-m', 'record review'], { cwd: root })
+
+		// When: the owner submits the reviewed implementation
+		const submitted = await service.submit({
+			workId: 'ISSUE-1',
+			actor: 'implementer',
+			evidence: [
+				{ kind: 'test', reference: 'proof.json' },
+				{ kind: 'review', reference: 'docs/work/reviews/ISSUE-1.yaml' },
+			],
+		})
+
+		// Then: the candidate carries both validation and independent-review gates
+		expect(submitted).toMatchObject({
+			ok: true,
+			value: {
+				gates: [
+					{ gate: 'validation', issuer: { kind: 'self' } },
+					{ gate: 'review', issuer: { kind: 'adapter', id: 'work:local-review' } },
+				],
+			},
+		})
+		await expect(
+			service.complete({
+				workId: 'ISSUE-1',
+				actor: 'implementer',
+				evidence: [
+					{ kind: 'test', reference: 'proof.json' },
+					{ kind: 'review', reference: 'docs/work/reviews/ISSUE-1.yaml' },
+				],
+			}),
+		).resolves.toMatchObject({ ok: true, value: { newStatus: 'closed' } })
 	})
 
 	it('keeps local-direct work active until its exact candidate is landed', async () => {

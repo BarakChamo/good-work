@@ -1,6 +1,6 @@
 ---
 name: work
-description: Inspect, start, submit, resume, hand off, or policy-complete repository-defined work through the validated work CLI. Use when a user invokes /work or $work, names an issue ID or issue file, asks what to work on next, or asks to continue tracked work; do not use it to invent work, bypass admission, or launch another agent process.
+description: Inspect, start, independently review, submit, resume, hand off, or policy-complete repository-defined work through the validated work CLI. Use when a user invokes /work or $work, names an issue ID or issue file, asks what to work on next, or asks to continue tracked work; do not use it to invent work, bypass admission, or launch another agent process.
 ---
 
 # Work
@@ -47,7 +47,7 @@ bun run work overview --json
 
 Present health, active work, the recommended ready item, other ready items, and
 these actions: `next`, `show <id>`, `start <id-or-path>`, `resume`, `status`,
-`handoff`, `finalize`, `submit`, `reconcile`, `integration`, `feedback`,
+`handoff`, `finalize`, `submit`, `reconcile`, `integration`, `review`, `feedback`,
 `telemetry`, `hooks`, and `help`. Keep the index compact and derive the work
 summary from the command result, never from this file.
 
@@ -58,8 +58,21 @@ state, but do not start it.
 
 ## Start work
 
-For `start <id-or-path>`, choose one stable actor identity for this session.
-Prefer a supplied identity; otherwise generate a collision-resistant
+For `start <id-or-path>`, first run the read-only preparation from the caller's
+current workspace:
+
+```sh
+bun run work prepare <id-or-path> --json
+```
+
+Follow its first semantic `nextAction`. If it returns `provision_workspace`,
+create that isolation through the surrounding repository workflow, enter the
+new workspace, and run `prepare` there once more. Do not call `work start` from
+a workspace that preparation rejected; `start` intentionally repeats admission
+and would only return the same non-mutating failure.
+
+Once preparation returns `start`, choose one stable actor identity for this
+session. Prefer a supplied identity; otherwise generate a collision-resistant
 runtime/work identity once. Prefix it with the actual runtime
 (`codex-issue-156-7f3a2c` or `claude-issue-156-7f3a2c`), not the workflow role.
 Never derive it from runtime and work ID alone. Then use the composed command
@@ -93,7 +106,7 @@ After start,
 briefly report the canonical work ID, source, actor, role/session when present,
 objective, acceptance, validation expectations, and first action, then perform
 the requested work. The work layer does not spawn agents, create worktrees or
-containers, run checks, review, open PRs, or land changes.
+containers, run checks, launch reviewers, open PRs, or land changes.
 
 ## Parallel work
 
@@ -129,6 +142,30 @@ direct children.
 
 - `handoff`: persist a bounded repository-relative summary with remaining work
   and durable references, not a transcript.
+- `review`: when `review` is required evidence, commit the implementation and
+  evidence first, then run `work review prepare <id> --actor <implementation-actor>
+  --json`. Keep the implementation session active but stop editing. Use the
+  current runtime's native delegation mechanism to run one distinct reviewer in
+  the same worktree, sequentially rather than concurrently. Give that reviewer
+  the returned packet and the reviewer protocol below; Work never launches it.
+  A human reviewer may follow the same protocol. The reviewer writes exactly
+  `docs/work/reviews/<ID>.md` and records either `review approve` or
+  `review request-changes` against the exact `subject.headSha`. After the
+  reviewer returns, always run `work review status <id> --json`; never accept a
+  prose completion claim as the decision. Only `approved` or
+  `changes_requested` with the durable receipt is complete. `pending` means no
+  decision was recorded and requires another reviewer pass. `incomplete` means
+  one persistence layer was interrupted: repeat the exact recorded decision
+  with the same reviewer identity and inputs, then check status again. `stale`
+  requires a fresh prepare/review cycle. Ensure the report and generated YAML
+  receipt are committed before continuing: commit them if still uncommitted, or
+  verify an existing reviewer commit contains only those files. Never create an
+  empty duplicate commit. Follow the returned
+  `ensure_review_evidence_committed` and `verify_review_status` actions in order
+  before rework or finalization. Requested changes leave ownership and lifecycle
+  state intact: read and preserve the report, commit the decision, make and
+  commit fixes, prepare a new exact revision, and request a fresh review.
+  Approval is required before `finalize`.
 - `finalize`: after acceptance is satisfied, checks pass, and implementation
   changes plus evidence are committed, run `work finalize <id> --actor <actor>
 --evidence <kind=path> --json`. It validates ownership and evidence, requires a
@@ -154,7 +191,15 @@ direct children.
   in-place upgrade); the state home defaults to `~/.work` and honors
   `WORK_CONTRACT_STATE_HOME`. Then run `work sync --apply`. This intentionally
   loses disposable active coordination, not Git-backed definitions or
-  completions.
+  completions. If integration encounters semantic source conflicts, resolve
+  them in an isolated integration workspace, create and validate the exact
+  combined commit, then request one independent read-only integration review
+  through the runtime before advancing the target. This follow-up reviews only
+  the conflict resolution; it does not replace or rewrite the candidate's
+  durable `work review` receipt, and Work does not launch it. Mechanical
+  conflict resolution that cannot change behavior may skip the follow-up when
+  the merger records why. Blocking findings return to the merger for correction
+  and another read-only pass.
 - `reconcile`: after the candidate and its completion record land, stay in the
   claimed issue worktree and run `work reconcile`. It imports the canonical
   repository record for that selected item only, closes disposable activity,
@@ -199,3 +244,39 @@ Never steal a claim, infer that stale activity grants ownership, silently repair
 ledger drift, start dependency-incomplete work, or treat an agent's completion
 statement as evidence. Ask for the one required operator decision when a
 structured conflict or authorization boundary cannot be resolved safely.
+
+## Independent reviewer protocol
+
+When the parent runtime delegates review, the reviewer is an evaluator, not a
+second implementer:
+
+1. Work in the already claimed worktree and verify `HEAD` equals the packet's
+   `subject.headSha`. Treat that SHA as immutable until the decision is recorded:
+   do not commit, amend, switch revisions, or substitute a later HEAD. Do not
+   claim, resume, release, reopen, finalize, submit, or reconcile the item.
+   The packet is already prepared; do not run `review prepare` again. Do not use
+   `git add`, `commit`, `stash`, `reset`, `checkout`, or another Git mutation.
+2. Read the issue source, acceptance criteria, candidate diff, tests, and
+   relevant repository instructions. Run proportionate read-only checks; do not
+   modify implementation files.
+3. Write a concise findings-first report to the packet's `suggestedReport`.
+   Include exact actionable findings, severity, evidence, and any residual risk.
+   Leave the report uncommitted until the decision is recorded so it cannot move
+   the reviewed HEAD. If an abandoned report already exists at that exact path,
+   inspect it and replace its contents in place; never stash, delete, or
+   relocate it.
+4. If there are no blocking findings, run `work review approve <id> --actor
+   <distinct-reviewer> --evaluator agent --report <report> --head <packet-head>
+   --json`. Otherwise run the identical `review request-changes` form.
+5. Run `work review status <id> --json` and verify it returns the disposition
+   just recorded plus a receipt. If the decision command was interrupted and
+   status is `incomplete`, repeat the exact decision with the same identity and
+   inputs; it is idempotent. Do not report completion while status is `pending`,
+   `incomplete`, or `stale`.
+6. Once the decision exists, either leave the report and receipt for the parent
+   or commit exactly those two canonical files when repository policy permits.
+   Run `review status` again after any such commit. Never commit implementation,
+   other evidence, or unrelated files. Return the structured decision, status,
+   and whether review artifacts were committed. Do not fix source; the parent
+   follows the returned actions. The reviewer identity must differ from the
+   implementation actor, although the runtime session may be shared.

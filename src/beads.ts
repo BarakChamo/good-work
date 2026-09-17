@@ -61,6 +61,8 @@ import type {
 	LedgerActivityInput,
 	LedgerClaimInput,
 	LedgerHandoffInput,
+	LedgerReviewDecision,
+	LedgerReviewInput,
 	LedgerSubmissionInput,
 	LedgerTransitionInput,
 } from './provider'
@@ -69,6 +71,7 @@ import {
 	LedgerClaimInputSchema,
 	LedgerDefinitionInputSchema,
 	LedgerHandoffInputSchema,
+	LedgerReviewInputSchema,
 	LedgerSubmissionInputSchema,
 	LedgerItemSchema,
 	LedgerRelationsInputSchema,
@@ -178,6 +181,23 @@ const GateSchema = strictObject({
 	observed_at: TimestampSchema,
 })
 
+const ReviewSchema = strictObject({
+	disposition: picklist(['approved', 'changes_requested']),
+	implementation_actor: boundedString(128),
+	subject: strictObject({
+		repository_id: HashSchema,
+		head_sha: pipe(string(), regex(/^[a-f0-9]{40,64}$/)),
+		tree_sha: pipe(string(), regex(/^[a-f0-9]{40,64}$/)),
+	}),
+	reviewer: strictObject({
+		actor: boundedString(128),
+		session: optional(boundedString(256)),
+		evaluator: picklist(['agent', 'human']),
+	}),
+	report: strictObject({ reference: SourcePathSchema, digest: HashSchema }),
+	decided_at: TimestampSchema,
+})
+
 const HandoffSchema = strictObject({
 	actor: boundedString(128),
 	summary: boundedMultilineString(4000),
@@ -201,6 +221,7 @@ const commonWorkMetadataSchema = {
 	evidence: optional(pipe(array(EvidenceSchema), maxLength(100))),
 	candidate: optional(CandidateSchema),
 	gates: optional(pipe(array(GateSchema), maxLength(32))),
+	review: optional(ReviewSchema),
 	block_reason: optional(boundedString(2000)),
 	archived: optional(boolean()),
 }
@@ -326,6 +347,7 @@ type EvidenceRecord = InferOutput<typeof EvidenceSchema>
 type HandoffRecord = InferOutput<typeof HandoffSchema>
 type CandidateRecord = InferOutput<typeof CandidateSchema>
 type GateRecord = InferOutput<typeof GateSchema>
+type ReviewRecord = InferOutput<typeof ReviewSchema>
 type BeadsRecord = InferOutput<typeof BeadsRecordSchema>
 type MutationLockOwner = InferOutput<typeof MutationLockOwnerSchema>
 
@@ -639,6 +661,26 @@ const normalizeGates = (values: readonly GateRecord[] | undefined): readonly Led
 		observedAt: value.observed_at,
 	}))
 
+const normalizeReview = (value: ReviewRecord | undefined): LedgerReviewDecision | undefined =>
+	value === undefined
+		? undefined
+		: {
+				disposition: value.disposition,
+				implementationActor: value.implementation_actor,
+				subject: {
+					repositoryId: value.subject.repository_id,
+					headSha: value.subject.head_sha,
+					treeSha: value.subject.tree_sha,
+				},
+				reviewer: {
+					actor: value.reviewer.actor,
+					...(value.reviewer.session === undefined ? {} : { session: value.reviewer.session }),
+					evaluator: value.reviewer.evaluator,
+				},
+				report: value.report,
+				decidedAt: value.decided_at,
+			}
+
 const LegacyDispositionSchema = strictObject({
 	evidence: pipe(array(SourcePathSchema), maxLength(100)),
 	state: literal('completed'),
@@ -905,6 +947,7 @@ const normalizeRecord = (
 			},
 		}
 	}
+	const review = normalizeReview(metadata.review)
 	const candidate: LedgerItem = {
 		definitionSchemaVersion: metadata.schema_version,
 		providerId: record.id,
@@ -934,6 +977,7 @@ const normalizeRecord = (
 		evidence: evidence.value,
 		...(candidateMetadata.value === undefined ? {} : { candidate: candidateMetadata.value }),
 		gates: normalizeGates(metadata.gates),
+		...(review === undefined ? {} : { review }),
 		blockReason: metadata.block_reason,
 		updatedAt: record.updated_at,
 	}
@@ -983,6 +1027,7 @@ const metadataForItem = (input: {
 	readonly evidence?: readonly LedgerEvidence[] | undefined
 	readonly candidate?: LedgerCandidate | null
 	readonly gates?: readonly LedgerGateReceipt[] | null
+	readonly review?: LedgerReviewDecision | null
 	readonly blockReason?: string | null
 	readonly archived?: boolean | undefined
 }): Readonly<Record<string, unknown>> => {
@@ -1001,6 +1046,7 @@ const metadataForItem = (input: {
 	const evidence = input.evidence ?? input.item.evidence
 	const candidate = input.candidate === null ? undefined : (input.candidate ?? input.item.candidate)
 	const gates = input.gates === null ? [] : (input.gates ?? input.item.gates ?? [])
+	const review = input.review === null ? undefined : (input.review ?? input.item.review)
 	const blockReason =
 		input.blockReason === null ? undefined : (input.blockReason ?? input.item.blockReason)
 	const archived = input.archived ?? (input.item.status === 'archived' ? true : undefined)
@@ -1097,6 +1143,22 @@ const metadataForItem = (input: {
 				digest: gate.digest,
 				observed_at: gate.observedAt,
 			})),
+			...(review === undefined
+				? {}
+				: {
+						review: {
+							disposition: review.disposition,
+							implementation_actor: review.implementationActor,
+							subject: {
+								repository_id: review.subject.repositoryId,
+								head_sha: review.subject.headSha,
+								tree_sha: review.subject.treeSha,
+							},
+							reviewer: review.reviewer,
+							report: review.report,
+							decided_at: review.decidedAt,
+						},
+					}),
 			...(blockReason === undefined ? {} : { block_reason: blockReason }),
 			...(archived === undefined ? {} : { archived }),
 		},
@@ -3367,6 +3429,112 @@ class BeadsCliProvider implements BeadsProvider {
 						item.assignee === parsed.value.actor &&
 						isDeepStrictEqual(item.candidate, candidate) &&
 						isDeepStrictEqual(item.gates ?? [], gates),
+				})
+			},
+		)
+	}
+
+	public async recordReview(input: LedgerReviewInput): Promise<WorkResult<LedgerItem>> {
+		const parsed = parseAdapterInput(LedgerReviewInputSchema, input)
+		if (!parsed.ok) {
+			return parsed
+		}
+		return this.#withMutationLocks(
+			parsed.value.expectedDefinitionClosure.map(({ workId }) => workId),
+			async () => {
+				const current = await this.#find(
+					parsed.value.workId,
+					[],
+					parsed.value.expectedDefinitionClosure.map(normalizeDependencyExpectation),
+				)
+				if (!current.ok) {
+					return current
+				}
+				const definition = this.#verifyExpectedDefinition(
+					current.value,
+					normalizeDefinitionExpectation(parsed.value.expectedDefinition),
+				)
+				if (!definition.ok) {
+					return definition
+				}
+				if (
+					current.value.status !== 'in_progress' ||
+					current.value.activity === undefined ||
+					current.value.activity.actor !== parsed.value.review.implementationActor
+				) {
+					return {
+						ok: false,
+						error: {
+							type: 'work_contract_error',
+							code: 'invalid_transition',
+							message: `${parsed.value.workId} has no matching active implementation to review.`,
+						},
+					}
+				}
+				if (parsed.value.review.reviewer.actor === parsed.value.review.implementationActor) {
+					return {
+						ok: false,
+						error: {
+							type: 'work_contract_error',
+							code: 'review_actor_conflict',
+							message: 'The implementation actor cannot approve its own work.',
+						},
+					}
+				}
+				if (current.value.review !== undefined) {
+					if (isDeepStrictEqual(current.value.review, parsed.value.review)) {
+						return current
+					}
+					if (current.value.review.subject.headSha === parsed.value.review.subject.headSha) {
+						return {
+							ok: false,
+							error: {
+								type: 'work_contract_error',
+								code: 'review_decision_conflict',
+								message: 'This implementation revision already has another review decision.',
+							},
+						}
+					}
+				}
+				const review: LedgerReviewDecision = {
+					disposition: parsed.value.review.disposition,
+					implementationActor: parsed.value.review.implementationActor,
+					subject: parsed.value.review.subject,
+					reviewer: {
+						actor: parsed.value.review.reviewer.actor,
+						...(parsed.value.review.reviewer.session === undefined
+							? {}
+							: { session: parsed.value.review.reviewer.session }),
+						evaluator: parsed.value.review.reviewer.evaluator,
+					},
+					report: parsed.value.review.report,
+					decidedAt: parsed.value.review.decidedAt,
+				}
+				const capacity = this.#validateProjectionItem({ ...current.value, review })
+				if (!capacity.ok) {
+					return capacity
+				}
+				const updated = this.#run([
+					'update',
+					current.value.providerId,
+					'--metadata',
+					JSON.stringify(metadataForItem({ item: current.value, review })),
+					'--actor',
+					parsed.value.review.reviewer.actor,
+				])
+				if (!updated.ok) {
+					return updated
+				}
+				return this.#confirmMutation({
+					source: updated.value,
+					workId: parsed.value.workId,
+					operation: 'recordReview',
+					structure: current.value,
+					postcondition: (item) =>
+						item.status === 'in_progress' &&
+						item.assignee === current.value.assignee &&
+						isDeepStrictEqual(item.activity, current.value.activity) &&
+						isDeepStrictEqual(item.review, review),
 				})
 			},
 		)

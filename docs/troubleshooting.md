@@ -34,6 +34,14 @@ Drain all sessions using the old package before upgrading. Install the new
 package and skill, run doctor and sync, and only then start new workers. Work
 does not claim to coordinate concurrently running incompatible generations.
 
+## Review is required or stale
+
+Run `work review status <id> --json`. A pending item needs `review prepare` and
+a distinct reviewer. A changes-requested item remains owned by the implementer;
+commit the fix and prepare a new review. A stale item changed after review, so
+the previous approval cannot be reused. Reviewers must write only the canonical
+Markdown report and use the exact head returned by `review prepare`.
+
 ## Recovering from deleted local state
 
 Committed definitions and completion records are durable. Reinstall the

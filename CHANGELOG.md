@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.5.1
+
+### Patch Changes
+
+- [#25](https://github.com/BarakChamo/good-work/pull/25) [`ca73b3e`](https://github.com/BarakChamo/good-work/commit/ca73b3e3e07f9acbcd700637dee0d66bcdd5592a) Thanks [@BarakChamo](https://github.com/BarakChamo)! - Prepare isolation before agent-owned starts, require an independent read-only
+  review after semantic integration conflicts, and expose/shorten exact-tree
+  review validation in local performance telemetry.
+
+## 0.5.0
+
+### Minor Changes
+
+- [#23](https://github.com/BarakChamo/good-work/pull/23) [`979aff2`](https://github.com/BarakChamo/good-work/commit/979aff26818277e9605cfe2d21c9d8bb52f21b47) Thanks [@BarakChamo](https://github.com/BarakChamo)! - Version review-status responses as schema v2, expose partially persisted or
+  superseded review decisions as `incomplete`, preserve the surviving decision
+  metadata, and return idempotent evidence-commit plus mandatory status-verification
+  actions. The generated skills document interruption recovery for agents.
+
+## 0.4.0
+
+### Minor Changes
+
+- [#21](https://github.com/BarakChamo/good-work/pull/21) [`f94da76`](https://github.com/BarakChamo/good-work/commit/f94da76bcc4a6ecd253784b05be8cf8eebdc14c7) Thanks [@BarakChamo](https://github.com/BarakChamo)! - Add an independent exact-tree review gate with prepare, status, approve, and
+  request-changes commands. Review reports and receipts remain in Git, reviewer
+  launch stays in the surrounding runtime, and finalization rejects missing or
+  stale approval when review evidence is configured.
+
 ## 0.3.0
 
 ### Minor Changes

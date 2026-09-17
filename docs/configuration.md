@@ -24,12 +24,12 @@ sources:
 policies:
   contextMaxBytes: 12000
   staleClaimMinutes: 90
-  terminalEvidence: [artifact]
+  terminalEvidence: [artifact, review]
   delivery:
     profile: protected-pr
     isolation: worktree
     targetRef: refs/heads/main
-    requiredGates: [validation, landing]
+    requiredGates: [validation, pull-request, review, ci, merge]
 ```
 
 The UUID is generated once, committed, and is not a secret. For Git-backed
@@ -40,6 +40,15 @@ Selected Markdown uses YAML frontmatter for identity and relationships. IDs and
 paths must be unique, dependencies and parents must exist, and cycles are
 rejected. `execution: aggregate` makes an item a non-claimable rollup over its
 direct children.
+
+Adding `review` to `terminalEvidence` enables Work's independent-review
+protocol. It requires a distinct reviewer decision bound to the exact committed
+implementation tree before finalization. The reviewer is launched by the agent
+runtime or operator, not by Work. `requiredGates` describes delivery receipts;
+include `review` there when the final delivery policy must also retain the
+candidate-bound review gate. Protected-PR defaults may continue to obtain their
+review gate from the external code-hosting adapter without enabling the local
+review protocol.
 
 ## `work.json`
 

@@ -21,6 +21,9 @@ CLI required by the plugin bridge.
 The bridge invokes `work hooks dispatch`. It never runs a repository package
 script as a fallback and never installs dependencies.
 
+The bundled skill also documents Work's independent-review protocol. The
+runtime or operator launches the distinct reviewer; the plugin never does so.
+
 ## Local validation
 
 ```sh

@@ -38,6 +38,8 @@ Ledger-enabled repositories finish through:
 
 ```text
 implementation and checks are committed
+→ work review prepare binds a distinct reviewer to the exact tree (when required)
+→ review report and approval receipt are committed
 → work finalize writes one completion record
 → completion record is committed
 → work submit records the clean candidate
@@ -47,6 +49,35 @@ implementation and checks are committed
 
 `work complete` remains only for manifests without the repository completion
 ledger. Follow returned `nextActions` instead of assuming a lifecycle.
+
+## Independent review
+
+| Command                                | Use                                                         |
+| -------------------------------------- | ----------------------------------------------------------- |
+| `work review status <id>`              | Inspect the current decision and exact-tree freshness.      |
+| `work review prepare <id> --actor ...` | Prepare a clean committed tree for a distinct reviewer.     |
+| `work review approve <id> ...`         | Record approval and write the repository review receipt.    |
+| `work review request-changes <id> ...` | Record findings without releasing or reopening the item.    |
+
+`approve` and `request-changes` require a distinct reviewer actor,
+`--evaluator agent|human`, the exact `--head` returned by `prepare`, and the
+canonical report path `docs/work/reviews/<ID>.md`. Work does not launch the
+reviewer. A source change makes the prior decision stale and requires a new
+prepare/decision cycle. `finalize` refuses review-required work until the current
+tree is approved.
+
+Always check `work review status <id> --json` after a reviewer returns. A
+`pending` result means no decision was recorded. An `incomplete` result reports
+whether the provider record or repository receipt is missing and retains the
+surviving decision metadata; repeat that exact decision with the same reviewer
+identity to repair the interrupted write. `approved` and `changes_requested`
+are complete only when the receipt is present. This makes reviewer handoff
+verification independent of an agent's natural-language completion claim.
+Review-status responses use schema version 2; consumers must reject unknown
+schema versions rather than assuming the earlier four-state schema.
+Successful review decisions return `ensure_review_evidence_committed`, then
+`verify_review_status`, before the rework or finalization action. “Ensure” means
+commit only when the two canonical review files are not already committed.
 
 ## Coordination and diagnostics
 
@@ -77,5 +108,9 @@ that do not already carry `--session`; `CODEX_SESSION_ID` is a final Codex
 fallback. `WORK_SESSION_ID` has highest precedence and an explicit command
 session has priority over every environment value.
 
-The CLI never runs a check, launches an agent, changes Git, opens a pull request,
-merges, creates isolation, or removes a worktree.
+Command events expose bounded phase totals for local profiling. Exact-tree
+review freshness contributes to `git_observation`, separating it from definition
+compilation and provider reads without recording reviewed paths or content.
+
+The CLI never runs a check, launches an agent or reviewer, changes Git, opens a
+pull request, merges, creates isolation, or removes a worktree.
