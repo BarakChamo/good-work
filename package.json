@@ -102,16 +102,16 @@
 		"@cyclonedx/cyclonedx-npm": "6.0.1",
 		"@modelcontextprotocol/client": "2.0.0",
 		"@modelcontextprotocol/server": "2.0.0",
-		"@types/node": "24.10.2",
+		"@types/node": "26.4.1",
 		"@types/picomatch": "4.0.3",
-		"@vitest/coverage-v8": "4.1.6",
-		"oxfmt": "0.60.0",
-		"oxlint": "1.75.0",
+		"@vitest/coverage-v8": "5.0.0",
+		"oxfmt": "0.66.0",
+		"oxlint": "1.81.0",
 		"oxlint-tsgolint": "7.0.2001",
-		"rumdl": "0.2.46",
+		"rumdl": "0.2.67",
 		"typescript": "7.0.2",
-		"vitest": "4.1.6",
-		"zod": "4.4.3"
+		"vitest": "5.0.0",
+		"zod": "4.5.4"
 	},
 	"engines": {
 		"bun": ">=1.3.7"
