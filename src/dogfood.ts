@@ -72,6 +72,10 @@ const TELEMETRY_COMMANDS = [
 	'submit',
 	'finalize',
 	'reconcile',
+	'review.status',
+	'review.prepare',
+	'review.approve',
+	'review.request-changes',
 	'integration.status',
 	'integration.acquire',
 	'integration.release',
@@ -676,6 +680,7 @@ const nestedCommandName = (
 		invocation.command === 'skill' ||
 		invocation.command === 'telemetry' ||
 		invocation.command === 'integration' ||
+		invocation.command === 'review' ||
 		invocation.command === 'hooks'
 	) {
 		const action = invocation.positionals[0]
@@ -689,6 +694,9 @@ const nestedCommandName = (
 const workIdFor = (invocation: WorkContractInvocation): string | undefined => {
 	if (invocation.command === 'feedback') {
 		return invocation.options['work-id']?.at(-1)
+	}
+	if (invocation.command === 'review') {
+		return invocation.positionals[1]
 	}
 	return [
 		'prepare',

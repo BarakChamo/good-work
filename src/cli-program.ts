@@ -520,6 +520,13 @@ const sessionAssertionFlag = {
 	brief: 'Assert the active claim session',
 } as const
 
+const reviewerSessionFlag = {
+	kind: 'parsed',
+	parse: parseText,
+	optional: true,
+	brief: 'Reviewer session identity for audit',
+} as const
+
 const touchCommand = buildCommand<
 	CommonFlags & { readonly actor: string; readonly role?: string; readonly session?: string },
 	[string],
@@ -1285,6 +1292,107 @@ const integrationRoutes = buildRouteMap({
 	docs: { brief: 'Coordinate one local external integration at a time' },
 })
 
+const reviewStatusCommand = buildCommand<CommonFlags, [string], WorkCliContext>({
+	async func(flags, id): Promise<void> {
+		await invoke(this, flags, 'review', ['status', id])
+	},
+	parameters: { flags: commonFlags, positional: workIdPositional },
+	docs: { brief: 'Show the current independent-review decision and freshness' },
+})
+
+const reviewPrepareCommand = buildCommand<
+	CommonFlags & { readonly actor: string; readonly role?: string; readonly session?: string },
+	[string],
+	WorkCliContext
+>({
+	async func(flags, id): Promise<void> {
+		await invoke(
+			this,
+			flags,
+			'review',
+			['prepare', id],
+			options([
+				['actor', flags.actor],
+				['role', flags.role],
+				['session', flags.session],
+			]),
+		)
+	},
+	parameters: {
+		flags: {
+			...commonFlags,
+			actor: { kind: 'parsed', parse: parseText, brief: 'Current implementation owner' },
+			role: roleAssertionFlag,
+			session: sessionAssertionFlag,
+		},
+		positional: workIdPositional,
+	},
+	docs: { brief: 'Prepare the exact clean implementation for a distinct reviewer' },
+})
+
+const reviewDecisionCommand = (action: 'approve' | 'request-changes', brief: string) =>
+	buildCommand<
+		CommonFlags & {
+			readonly actor: string
+			readonly session?: string
+			readonly evaluator: 'agent' | 'human'
+			readonly report: string
+			readonly head: string
+		},
+		[string],
+		WorkCliContext
+	>({
+		async func(flags, id): Promise<void> {
+			await invoke(
+				this,
+				flags,
+				'review',
+				[action, id],
+				options([
+					['actor', flags.actor],
+					['session', flags.session],
+					['evaluator', flags.evaluator],
+					['report', flags.report],
+					['head', flags.head],
+				]),
+			)
+		},
+		parameters: {
+			flags: {
+				...commonFlags,
+				actor: { kind: 'parsed', parse: parseText, brief: 'Distinct reviewer identity' },
+				session: reviewerSessionFlag,
+				evaluator: {
+					kind: 'parsed',
+					parse: (value: string): 'agent' | 'human' => {
+						if (value !== 'agent' && value !== 'human') {
+							throw new Error('Evaluator must be agent or human.')
+						}
+						return value
+					},
+					brief: 'Reviewer kind',
+				},
+				report: { kind: 'parsed', parse: parseText, brief: 'Repository-relative review report' },
+				head: { kind: 'parsed', parse: parseText, brief: 'Exact head returned by review prepare' },
+			},
+			positional: workIdPositional,
+		},
+		docs: { brief },
+	})
+
+const reviewRoutes = buildRouteMap({
+	routes: {
+		status: reviewStatusCommand,
+		prepare: reviewPrepareCommand,
+		approve: reviewDecisionCommand('approve', 'Approve the exact implementation under review'),
+		'request-changes': reviewDecisionCommand(
+			'request-changes',
+			'Request changes without closing or reopening the work item',
+		),
+	},
+	docs: { brief: 'Prepare and record independent review without running an agent' },
+})
+
 const rootRoutes = buildRouteMap({
 	routes: {
 		init: initCommand,
@@ -1323,6 +1431,7 @@ const rootRoutes = buildRouteMap({
 		telemetry: telemetryRoutes,
 		hooks: hookRoutes,
 		integration: integrationRoutes,
+		review: reviewRoutes,
 	},
 	docs: {
 		brief: 'Git-native work contracts on Beads',

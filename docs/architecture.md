@@ -10,6 +10,7 @@ Beads CLI. Its public API is deliberately smaller than its implementation.
 | Project identity and policy           | root `work.yaml`             | Git                    |
 | Initiatives, PRDs, issues, tasks      | selected Markdown            | Git                    |
 | Completion evidence and attribution   | `docs/work/ledger/<ID>.yaml` | Git                    |
+| Review reports and exact-tree receipts | `docs/work/reviews/<ID>.*`   | Git                    |
 | Advisory engineering hooks            | root `work.json`             | Git                    |
 | Claims, blocks, handoffs, submissions | Beads adapter state          | disposable local state |
 | Telemetry, feedback, hook trust       | Work coordination state      | disposable local state |
@@ -26,6 +27,9 @@ relocated with `WORK_CONTRACT_STATE_HOME`.
 - The provider adapter owns every Beads invocation, response schema, compatibility
   check, lock, and recovery projection.
 - The service owns lifecycle transitions and expected failures.
+- The review boundary prepares a clean exact tree, enforces a distinct reviewer,
+  and records an approved or changes-requested receipt without launching an
+  agent or modifying implementation source.
 - Delivery observation checks whether the surrounding Git workspace satisfies
   declared policy without mutating it.
 - The CLI parses with Stricli and emits human output or stable JSON envelopes.
@@ -41,6 +45,7 @@ and hook payloads are validated at their boundaries. Expected conflicts return
 typed work errors. Mutations publish a bounded recovery projection and fail
 closed when ownership or persistence is uncertain.
 
-Work intentionally leaves agent launch, Git changes, checks, pull requests,
-merging, isolation provisioning, and cleanup to the surrounding engineering
-environment.
+Work intentionally leaves agent and reviewer launch, Git changes, checks, pull
+requests, merging, isolation provisioning, and cleanup to the surrounding
+engineering environment. It coordinates review evidence; it does not execute
+the review.

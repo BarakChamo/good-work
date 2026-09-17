@@ -11,6 +11,7 @@ import type { CanonicalDefinitionRevision, CompiledWorkGraph, WorkResult } from 
 import { EVIDENCE_ONLY_DELIVERY_POLICY } from './contracts'
 import type { CollaborativeLedgerProvider, LedgerEvidence, LedgerItem } from './provider'
 import { createWorkContractService } from './service'
+import { loadReviewReceipt } from './review'
 
 const deferrable = new Set(['work_not_ready', 'aggregate_not_ready'])
 
@@ -60,6 +61,7 @@ const applyRecord = async (input: {
 		provider: input.provider,
 		initialLedgerItems: input.items,
 		deliveryPolicy: EVIDENCE_ONLY_DELIVERY_POLICY,
+		historicalReviewRecovery: true,
 		clock: () => new Date(record.completedAt ?? record.reopenedAt ?? new Date().toISOString()),
 		...(input.definitionRevision === undefined
 			? {}
@@ -75,14 +77,43 @@ const applyRecord = async (input: {
 		})
 	}
 	const artifact = input.graph.items.find(({ id }) => id === record.workId)
-	if (artifact?.execution === 'aggregate' || input.current.status !== 'open') {
-		return service.complete({
+	const restoreReview = async (): Promise<WorkResult<unknown>> => {
+		if (artifact?.execution !== 'task' || !artifact.evidenceRequirements.includes('review')) {
+			return { ok: true, value: undefined }
+		}
+		if (input.current.review !== undefined) {
+			return { ok: true, value: undefined }
+		}
+		const receipt = await loadReviewReceipt({ root: input.root, workId: record.workId })
+		if (!receipt.ok) {
+			return receipt
+		}
+		if (receipt.value?.disposition !== 'approved') {
+			return drift(`${record.workId} has no approved repository review receipt.`)
+		}
+		return service.recordReview({
 			workId: record.workId,
-			actor: record.actor,
-			...(record.role === undefined ? {} : { role: record.role }),
-			...(record.session === undefined ? {} : { session: record.session }),
-			evidence: record.evidence,
+			reviewerActor: receipt.value.reviewer.actor,
+			...(receipt.value.reviewer.session === undefined
+				? {}
+				: { reviewerSession: receipt.value.reviewer.session }),
+			evaluator: receipt.value.reviewer.evaluator,
+			disposition: receipt.value.disposition,
+			reportReference: receipt.value.report.reference,
+			reviewedHead: receipt.value.subject.headSha,
 		})
+	}
+	if (artifact?.execution === 'aggregate' || input.current.status !== 'open') {
+		const reviewed = await restoreReview()
+		return reviewed.ok
+			? service.complete({
+					workId: record.workId,
+					actor: record.actor,
+					...(record.role === undefined ? {} : { role: record.role }),
+					...(record.session === undefined ? {} : { session: record.session }),
+					evidence: record.evidence,
+				})
+			: reviewed
 	}
 	const claimed = await service.claim({
 		workId: record.workId,
@@ -90,7 +121,11 @@ const applyRecord = async (input: {
 		...(record.role === undefined ? {} : { role: record.role }),
 		...(record.session === undefined ? {} : { session: record.session }),
 	})
-	return claimed.ok
+	if (!claimed.ok) {
+		return claimed
+	}
+	const reviewed = await restoreReview()
+	return reviewed.ok
 		? service.complete({
 				workId: record.workId,
 				actor: record.actor,
@@ -98,7 +133,7 @@ const applyRecord = async (input: {
 				...(record.session === undefined ? {} : { session: record.session }),
 				evidence: record.evidence,
 			})
-		: claimed
+		: reviewed
 }
 
 /** @description Applies current repository completion state to a disposable provider store. */
