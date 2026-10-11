@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.2
+
+### Patch Changes
+
+- [#33](https://github.com/BarakChamo/good-work/pull/33) [`268250c`](https://github.com/BarakChamo/good-work/commit/268250c624c42233684a618d34cd3635b6e2e64d) Thanks [@BarakChamo](https://github.com/BarakChamo)! - Allow and validate an issue-scoped review coverage attestation after approval.
+
 ## 0.5.1
 
 ### Patch Changes
