@@ -26,17 +26,19 @@ For ledger-enabled delivery, the agent:
 2. commits implementation and evidence;
 3. when configured, runs `work review prepare` and pauses source edits while a
    distinct reviewer operates sequentially in the same worktree;
-4. runs `work review status` after the reviewer returns and trusts only a
-   structured `approved` or `changes_requested` result with a receipt;
-5. ensures the review report and receipt are committed after approval—without a
-   duplicate commit if the reviewer already committed only those artifacts—or
-   preserves and reads requested changes, commits the decision when needed,
+4. preserves the reviewer decision and, when the repository requires it,
+   creates the exact-item coverage sidecar from that decision and receipt;
+5. commits only the review report, receipt, and any required review sidecar,
+   without a duplicate commit if the reviewer already committed them, then runs
+   `work review status` and trusts only a structured `approved` or
+   `changes_requested` result with a receipt;
+6. preserves and reads requested changes, commits the decision when needed,
    fixes them, and repeats review without reopening the issue;
-6. runs `work finalize` and commits the one completion record;
-7. reruns applicable checks and runs `work submit`;
-8. uses the repository's external CI/merge flow;
-9. returns to the claimed worktree and runs `work reconcile`;
-10. cleans up only after the terminal action says cleanup is eligible.
+7. runs `work finalize` and commits the one completion record;
+8. reruns applicable checks and runs `work submit`;
+9. uses the repository's external CI/merge flow;
+10. returns to the claimed worktree and runs `work reconcile`;
+11. cleans up only after the terminal action says cleanup is eligible.
 
 An agent statement that work is done is not completion evidence.
 
@@ -59,12 +61,16 @@ without committing it, then records one decision:
 
 The reviewer uses the supplied packet and does not rerun `review prepare` or use
 Git mutations before deciding. If an abandoned report already exists, inspect
-and overwrite it in place; do not move or discard it. After the decision, the
-reviewer may commit exactly the canonical report and receipt when repository
+and overwrite it in place; do not move or discard it. When repository
+instructions require `docs/work/review-coverage/<ID>.json`, create it after the
+decision and bind it to the same issue, reviewed head/tree, reviewer, report, and
+receipt. Run the repository's coverage checker. Afterward, the reviewer may
+commit exactly the report, receipt, and required coverage sidecar when repository
 policy permits, then recheck `review status`; otherwise the implementation agent
-commits them. The implementation agent must tolerate either case, verify that an
-existing review-artifact commit contains no unrelated files, and never create an
-empty duplicate commit.
+commits them. Work accepts and validates only the matching work item's sidecar.
+The implementation agent must tolerate either case, verify that an existing
+review-artifact commit contains no unrelated files, and never create an empty
+duplicate commit.
 
 ```sh
 work review approve ISSUE-123 --actor <reviewer> --evaluator agent \
