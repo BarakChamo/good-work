@@ -93,7 +93,7 @@
 		"@beads/bd": "1.2.2",
 		"@stricli/core": "1.3.0",
 		"picomatch": "4.0.4",
-		"valibot": "1.4.2",
+		"valibot": "1.5.0",
 		"yaml": "2.9.0"
 	},
 	"devDependencies": {
