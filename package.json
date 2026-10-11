@@ -110,7 +110,7 @@
 		"oxlint-tsgolint": "7.0.2001",
 		"rumdl": "0.2.46",
 		"typescript": "7.0.2",
-		"vitest": "4.1.6",
+		"vitest": "4.1.11",
 		"zod": "4.4.3"
 	},
 	"engines": {
