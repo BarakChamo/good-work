@@ -5,7 +5,8 @@
  * @file Review.test.ts
  */
 
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -203,6 +204,70 @@ describe('repository review receipts', () => {
 				decidedAt: '2026-09-09T00:00:00.000Z',
 			}),
 		).resolves.toMatchObject({ ok: false, error: { code: 'review_report_invalid' } })
+	})
+
+	it('rejects a review coverage sidecar that is not bound to the approved receipt', async () => {
+		const subject = await prepareReviewSubject({ root })
+		expect(subject.ok).toBe(true)
+		if (!subject.ok) return
+		await mkdir(join(root, 'docs/work/reviews'), { recursive: true })
+		await writeFile(join(root, 'docs/work/reviews/ISSUE-1.md'), '# Review\n\nApproved.\n')
+		const written = await writeReviewReceipt({
+			root,
+			projectId: 'example',
+			definitionHash: 'a'.repeat(64),
+			workId: 'ISSUE-1',
+			implementationActor: 'implementer',
+			reviewer: { actor: 'reviewer', evaluator: 'agent' },
+			disposition: 'approved',
+			reportReference: 'docs/work/reviews/ISSUE-1.md',
+			subject: subject.value,
+			decidedAt: '2026-10-11T00:00:00.000Z',
+		})
+		expect(written.ok).toBe(true)
+		if (!written.ok) return
+
+		const receipt = await readFile(join(root, 'docs/work/reviews/ISSUE-1.yaml'))
+		const report = await readFile(join(root, 'docs/work/reviews/ISSUE-1.md'))
+		const sidecar = {
+			record_type: 'reviewer_attestation',
+			work_id: 'ISSUE-1',
+			reviewed_head: subject.value.headSha,
+			reviewed_tree: subject.value.treeSha,
+			reviewer_actor: 'reviewer',
+			report: 'docs/work/reviews/ISSUE-1.md',
+			report_sha256: createHash('sha256').update(report).digest('hex'),
+			receipt: 'docs/work/reviews/ISSUE-1.yaml',
+			receipt_sha256: createHash('sha256').update(receipt).digest('hex'),
+		}
+		await mkdir(join(root, 'docs/work/review-coverage'), { recursive: true })
+		const path = join(root, 'docs/work/review-coverage/ISSUE-1.json')
+		await writeFile(path, JSON.stringify(sidecar))
+		await expect(
+			validateReviewReceipt({ root, receipt: written.value.receipt }),
+		).resolves.toMatchObject({ ok: true, value: { current: true } })
+		const mismatches = [
+			{ ...sidecar, work_id: 'ISSUE-2' },
+			{ ...sidecar, reviewed_head: 'b'.repeat(40) },
+			{ ...sidecar, reviewed_tree: 'b'.repeat(40) },
+			{ ...sidecar, reviewer_actor: 'another-reviewer' },
+			{ ...sidecar, report: 'docs/work/reviews/ISSUE-2.md' },
+			{ ...sidecar, report_sha256: 'b'.repeat(64) },
+			{ ...sidecar, receipt: 'docs/work/reviews/ISSUE-2.yaml' },
+			{ ...sidecar, receipt_sha256: 'b'.repeat(64) },
+		]
+
+		for (const mismatch of mismatches) {
+			await writeFile(path, JSON.stringify(mismatch))
+			await expect(
+				validateReviewReceipt({ root, receipt: written.value.receipt }),
+			).resolves.toMatchObject({ ok: false, error: { code: 'review_target_stale' } })
+		}
+
+		await writeFile(join(root, 'src/unrelated.ts'), 'export const unrelated = true\n')
+		await expect(
+			validateReviewReceipt({ root, receipt: written.value.receipt }),
+		).resolves.toMatchObject({ ok: false, error: { code: 'review_target_stale' } })
 	})
 
 	it('validates historical review evidence after squash history drops the reviewed commit', async () => {

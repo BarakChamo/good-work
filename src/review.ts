@@ -13,6 +13,7 @@ import {
 	maxLength,
 	minLength,
 	optional,
+	object,
 	picklist,
 	pipe,
 	regex,
@@ -32,8 +33,10 @@ import { prepareSafeOutputPath } from './paths'
 import { executeFile } from './subprocess'
 
 export const REVIEW_DIRECTORY = 'docs/work/reviews'
+const REVIEW_COVERAGE_DIRECTORY = 'docs/work/review-coverage'
 const MAX_REVIEW_REPORT_BYTES = 128 * 1024
 const MAX_REVIEW_RECEIPT_BYTES = 32 * 1024
+const MAX_REVIEW_COVERAGE_BYTES = 128 * 1024
 
 const HashSchema = pipe(string(), regex(/^[a-f0-9]{64}$/u))
 const CommitHashSchema = pipe(string(), regex(/^[a-f0-9]{40,64}$/u))
@@ -62,6 +65,18 @@ const ReviewReceiptSchema = strictObject({
 	}),
 	report: strictObject({ reference: RepositoryPathSchema, digest: HashSchema }),
 	decided_at: pipe(string(), maxLength(40), isoTimestamp()),
+})
+
+const ReviewCoverageBindingSchema = object({
+	record_type: literal('reviewer_attestation'),
+	work_id: pipe(string(), regex(WORK_ID_PATTERN)),
+	reviewed_head: CommitHashSchema,
+	reviewed_tree: CommitHashSchema,
+	reviewer_actor: BoundedIdentitySchema,
+	report: RepositoryPathSchema,
+	report_sha256: HashSchema,
+	receipt: RepositoryPathSchema,
+	receipt_sha256: HashSchema,
 })
 
 /** @description Exact clean Git revision handed to an independent reviewer. */
@@ -102,7 +117,86 @@ const failure = (
 })
 
 const receiptPathFor = (workId: string): string => `${REVIEW_DIRECTORY}/${workId}.yaml`
+const coveragePathFor = (workId: string): string => `${REVIEW_COVERAGE_DIRECTORY}/${workId}.json`
 const completionPathFor = (workId: string): string => `docs/work/ledger/${workId}.yaml`
+
+const validateReviewCoverage = async (input: {
+	readonly root: string
+	readonly receipt: ReviewReceipt
+	readonly required: boolean
+}): Promise<WorkResult<{ readonly current: true }>> => {
+	const coveragePath = coveragePathFor(input.receipt.workId)
+	const coverageSource = await readBoundedContainedUtf8({
+		root: input.root,
+		reference: coveragePath,
+		maxBytes: MAX_REVIEW_COVERAGE_BYTES,
+		unsafeCode: 'review_target_stale',
+		unavailableCode: 'review_target_stale',
+		tooLargeCode: 'review_target_stale',
+		invalidUtf8Code: 'review_target_stale',
+		label: 'Review coverage attestation',
+	})
+	if (!coverageSource.ok) {
+		return coverageSource.error.details?.includes('System error code: ENOENT.') === true &&
+			!input.required
+			? { ok: true, value: { current: true } }
+			: coverageSource
+	}
+	let document: unknown
+	try {
+		document = JSON.parse(coverageSource.value)
+	} catch {
+		return failure('review_target_stale', 'Review coverage attestation is not valid JSON.')
+	}
+	const parsed = safeParse(ReviewCoverageBindingSchema, document)
+	if (!parsed.success) {
+		return failure(
+			'review_target_stale',
+			'Review coverage attestation failed its binding contract.',
+		)
+	}
+	const receiptPath = receiptPathFor(input.receipt.workId)
+	const receiptSource = await readBoundedContainedUtf8({
+		root: input.root,
+		reference: receiptPath,
+		maxBytes: MAX_REVIEW_RECEIPT_BYTES,
+		unsafeCode: 'review_target_stale',
+		unavailableCode: 'review_target_stale',
+		tooLargeCode: 'review_target_stale',
+		invalidUtf8Code: 'review_target_stale',
+		label: 'Review receipt',
+	})
+	if (!receiptSource.ok) {
+		return receiptSource
+	}
+	const currentReceipt = parseReceipt(receiptSource.value, input.receipt.workId)
+	if (
+		!currentReceipt.ok ||
+		serializeReceipt(currentReceipt.value) !== serializeReceipt(input.receipt)
+	) {
+		return failure(
+			'review_target_stale',
+			'Review coverage attestation references a changed receipt.',
+		)
+	}
+	const binding = parsed.output
+	const matchesReceipt =
+		binding.work_id === input.receipt.workId &&
+		binding.reviewed_head === input.receipt.subject.headSha &&
+		binding.reviewed_tree === input.receipt.subject.treeSha &&
+		binding.reviewer_actor === input.receipt.reviewer.actor &&
+		binding.report === input.receipt.report.reference &&
+		binding.report_sha256 === input.receipt.report.digest &&
+		binding.receipt === receiptPath &&
+		binding.receipt_sha256 ===
+			createHash('sha256').update(receiptSource.value, 'utf8').digest('hex')
+	return matchesReceipt
+		? { ok: true, value: { current: true } }
+		: failure(
+				'review_target_stale',
+				'Review coverage attestation does not match its issue, reviewed tree, report, reviewer, or receipt.',
+			)
+}
 
 const toReceipt = (value: InferOutput<typeof ReviewReceiptSchema>): ReviewReceipt => ({
 	version: 1,
@@ -329,6 +423,7 @@ const validateReviewReceiptInternal = async (input: {
 		input.receipt.report.reference,
 		receiptPathFor(input.receipt.workId),
 		completionPathFor(input.receipt.workId),
+		coveragePathFor(input.receipt.workId),
 	])
 	if (paths.value.some((path) => !allowed.has(path))) {
 		return failure(
@@ -336,7 +431,15 @@ const validateReviewReceiptInternal = async (input: {
 			'The implementation changed after independent review; request a fresh review.',
 		)
 	}
-	return validateReport(input)
+	const report = await validateReport(input)
+	if (!report.ok) {
+		return report
+	}
+	return validateReviewCoverage({
+		root: input.root,
+		receipt: input.receipt,
+		required: paths.value.includes(coveragePathFor(input.receipt.workId)),
+	})
 }
 
 /** @description Verifies exact-tree approval within the existing Git profiling phase. */

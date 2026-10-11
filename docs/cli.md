@@ -77,7 +77,16 @@ Review-status responses use schema version 2; consumers must reject unknown
 schema versions rather than assuming the earlier four-state schema.
 Successful review decisions return `ensure_review_evidence_committed`, then
 `verify_review_status`, before the rework or finalization action. “Ensure” means
-commit only when the two canonical review files are not already committed.
+commit only when the report, receipt, and any repository-required coverage
+attestation are not already committed.
+
+Projects may also require a structured reviewer attestation at
+`docs/work/review-coverage/<ID>.json`. When present, Work permits only that
+item's coverage file as additional review metadata and verifies its issue,
+reviewed head/tree, reviewer, report digest, receipt path, and receipt digest
+against the approval. A mismatched attestation or a change to another file
+makes the review stale; project-specific checks remain responsible for the
+attestation's domain-specific coverage.
 
 ## Coordination and diagnostics
 

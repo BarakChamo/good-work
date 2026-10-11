@@ -268,15 +268,21 @@ second implementer:
 4. If there are no blocking findings, run `work review approve <id> --actor
    <distinct-reviewer> --evaluator agent --report <report> --head <packet-head>
    --json`. Otherwise run the identical `review request-changes` form.
-5. Run `work review status <id> --json` and verify it returns the disposition
+5. If repository instructions require a coverage attestation at
+   `docs/work/review-coverage/<id>.json`, create it after the decision from the
+   exact report and receipt. Bind its issue, reviewed head/tree, reviewer, report
+   path/digest, and receipt path/digest to those files. Preserve any additional
+   repository-defined fields and run its documented checker.
+6. Run `work review status <id> --json` and verify it returns the disposition
    just recorded plus a receipt. If the decision command was interrupted and
    status is `incomplete`, repeat the exact decision with the same identity and
    inputs; it is idempotent. Do not report completion while status is `pending`,
    `incomplete`, or `stale`.
-6. Once the decision exists, either leave the report and receipt for the parent
-   or commit exactly those two canonical files when repository policy permits.
-   Run `review status` again after any such commit. Never commit implementation,
-   other evidence, or unrelated files. Return the structured decision, status,
-   and whether review artifacts were committed. Do not fix source; the parent
-   follows the returned actions. The reviewer identity must differ from the
-   implementation actor, although the runtime session may be shared.
+7. Once the decision exists, either leave the report, receipt, and any required
+   coverage attestation for the parent or commit exactly those review files when
+   repository policy permits. Run `review status` again after any such commit.
+   Never commit implementation, other evidence, or unrelated files. Return the
+   structured decision, status, and whether review artifacts were committed. Do
+   not fix source; the parent follows the returned actions. The reviewer identity
+   must differ from the implementation actor, although the runtime session may
+   be shared.

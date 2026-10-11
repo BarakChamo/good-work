@@ -5,6 +5,7 @@
  * @file Repository-ledger.int.test.ts
  */
 
+import { createHash } from 'node:crypto'
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -212,6 +213,37 @@ test('finalizes in a worktree and reconstructs closed work after external state 
 	await expect(readFile(reviewReceiptPath, 'utf8')).resolves.toBe(reviewReceipt)
 	await git(linked, 'add', 'docs/work/reviews')
 	await git(linked, 'commit', '-m', 'record independent review')
+	const approvedReviewStatus = await invoke(linked, 'review', 'status', 'ISSUE-1')
+	expect(approvedReviewStatus.status, approvedReviewStatus.stderr.join('\n')).toBe(0)
+	expect(approvedReviewStatus.stdout.join('\n')).toContain('"state":"approved"')
+
+	const committedReceipt = await readFile(reviewReceiptPath, 'utf8')
+	const reviewReportPath = join(linked, 'docs/work/reviews/ISSUE-1.md')
+	const reviewReport = await readFile(reviewReportPath)
+	const reviewedTree = (
+		await git(linked, 'rev-parse', `${reviewedHead ?? ''}^{tree}`)
+	).stdout.trim()
+	const coveragePath = join(linked, 'docs/work/review-coverage/ISSUE-1.json')
+	await mkdir(join(linked, 'docs/work/review-coverage'), { recursive: true })
+	await writeFile(
+		coveragePath,
+		JSON.stringify({
+			record_type: 'reviewer_attestation',
+			work_id: 'ISSUE-1',
+			reviewed_head: reviewedHead ?? '',
+			reviewed_tree: reviewedTree,
+			reviewer_actor: 'reviewer',
+			report: 'docs/work/reviews/ISSUE-1.md',
+			report_sha256: createHash('sha256').update(reviewReport).digest('hex'),
+			receipt: 'docs/work/reviews/ISSUE-1.yaml',
+			receipt_sha256: createHash('sha256').update(committedReceipt).digest('hex'),
+		}),
+	)
+	await git(linked, 'add', 'docs/work/review-coverage/ISSUE-1.json')
+	await git(linked, 'commit', '-m', 'record review coverage attestation')
+	const coveredReviewStatus = await invoke(linked, 'review', 'status', 'ISSUE-1')
+	expect(coveredReviewStatus.status, coveredReviewStatus.stderr.join('\n')).toBe(0)
+	expect(coveredReviewStatus.stdout.join('\n')).toContain('"state":"approved"')
 
 	const finalized = await invoke(
 		linked,
